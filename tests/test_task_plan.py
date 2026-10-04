@@ -78,3 +78,80 @@ def test_disabled_required_agent_blocks_execution():
         plan.validate_enabled(("triage", "frontend"))
 
     assert exc.value.agents == ("ux_ui",)
+
+
+def test_orchestration_policy_requires_decision_for_each_enabled_specialist():
+    plan = TaskPlan.from_json(
+        """{
+          "request": "Fix backend bug",
+          "profile": {
+            "summary": "Fix backend behavior.",
+            "classification": "backend_bug",
+            "risk_flags": ["backend_change", "behavior_regression"],
+            "durable_artifacts": []
+          },
+          "agent_decisions": [
+            {"agent": "backend", "selected": true, "gate": "backend_change", "reason": "Backend behavior changes."},
+            {"agent": "testing", "selected": true, "gate": "behavior_regression", "reason": "Regression risk exists."}
+          ],
+          "required_disabled_agents": [],
+          "nodes": [
+            {"id": "backend", "agent": "backend", "phase": "implementation", "objective": "Fix behavior", "depends_on": []},
+            {"id": "testing", "agent": "testing", "phase": "validation", "objective": "Regression test", "depends_on": ["backend"]}
+          ]
+        }"""
+    )
+
+    plan.validate_orchestration_policy(("triage", "backend", "testing"))
+
+
+def test_security_risk_cannot_omit_security_agent():
+    plan = TaskPlan.from_json(
+        """{
+          "request": "Add login endpoint",
+          "profile": {
+            "summary": "Add login endpoint.",
+            "classification": "authentication_change",
+            "risk_flags": ["security_surface", "backend_change"],
+            "durable_artifacts": []
+          },
+          "agent_decisions": [
+            {"agent": "backend", "selected": true, "gate": "backend_change", "reason": "Backend endpoint changes."},
+            {"agent": "security", "selected": false, "gate": "security_surface", "reason": "Incorrectly omitted."}
+          ],
+          "required_disabled_agents": [],
+          "nodes": [
+            {"id": "backend", "agent": "backend", "objective": "Implement endpoint", "depends_on": []}
+          ]
+        }"""
+    )
+
+    with pytest.raises(TaskPlanError, match="security_surface"):
+        plan.validate_orchestration_policy(("triage", "backend", "security"))
+
+
+def test_durable_artifact_requires_documentation_when_enabled():
+    plan = TaskPlan.from_json(
+        """{
+          "request": "Define API architecture",
+          "profile": {
+            "summary": "Define API architecture.",
+            "classification": "architecture",
+            "risk_flags": ["cross_layer"],
+            "durable_artifacts": ["technical_spec"]
+          },
+          "agent_decisions": [
+            {"agent": "architecture", "selected": true, "gate": "cross_layer", "reason": "Architecture is affected."},
+            {"agent": "documentation", "selected": false, "gate": "durable_artifact", "reason": "Incorrectly omitted."}
+          ],
+          "required_disabled_agents": [],
+          "nodes": [
+            {"id": "architecture", "agent": "architecture", "phase": "design", "objective": "Define architecture", "depends_on": []}
+          ]
+        }"""
+    )
+
+    with pytest.raises(TaskPlanError, match="Documentation"):
+        plan.validate_orchestration_policy(
+            ("triage", "architecture", "documentation")
+        )
