@@ -106,6 +106,66 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
     )
 
 
+def apply_project_context(
+    definition: AgentDefinition,
+    config: ProjectAgentDevKitConfig,
+    agent_key: str,
+) -> AgentDefinition:
+    """Resolve native instructions with safe project-local context.
+
+    Only explicit non-secret project metadata is injected: project name,
+    configured stack, per-agent extra instructions, and project rules.
+    Provider options are intentionally excluded because they may contain
+    credentials or other sensitive values.
+    """
+
+    contextual = config.agent(agent_key)
+    resolved = apply_contextual_config(definition, contextual)
+
+    stack_yaml = yaml.safe_dump(
+        dict(config.stack),
+        allow_unicode=True,
+        sort_keys=True,
+        default_flow_style=False,
+    ).strip()
+
+    rules = contextual.project_rules if contextual is not None else {}
+    rules_yaml = yaml.safe_dump(
+        dict(rules),
+        allow_unicode=True,
+        sort_keys=True,
+        default_flow_style=False,
+    ).strip()
+
+    context_parts = [
+        "Consuming project context:",
+        f"Project name: {config.name}",
+        "Configured stack:",
+        stack_yaml or "{}",
+    ]
+
+    if rules:
+        context_parts.extend(
+            [
+                "Project rules for this agent:",
+                rules_yaml,
+            ]
+        )
+
+    instructions = (
+        f"{resolved.instructions.rstrip()}\n\n"
+        + "\n".join(context_parts)
+        + "\n"
+    )
+
+    return AgentDefinition(
+        name=resolved.name,
+        instructions=instructions,
+        handoff_description=resolved.handoff_description,
+        model=resolved.model,
+    )
+
+
 def apply_contextual_config(
     definition: AgentDefinition,
     contextual: ContextualAgentConfig | None,
