@@ -333,10 +333,18 @@ def build_planning_prompt(
     enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
     available = tuple(normalize_agent_key(item) for item in available_agents)
     disabled = tuple(item for item in available if item not in set(enabled))
+    specialists = tuple(item for item in enabled if item != "triage")
+
+    gate_lines = "\n".join(
+        f"- {agent}: {AGENT_GATE_GUIDANCE.get(agent, 'Use only when materially required.')}"
+        for agent in specialists
+    )
 
     return f"""Planning-only operation. Do not hand off.
 
-Analyze the user request and return a task execution DAG as JSON only.
+Analyze the user request and return the MINIMUM SUFFICIENT task execution DAG
+as JSON only. Every specialist call has cost. Never select an agent merely
+because it is available.
 
 User request:
 {request}
@@ -347,29 +355,65 @@ Enabled agent keys:
 Known but disabled agent keys:
 {", ".join(disabled) or "(none)"}
 
+Gate policy for enabled specialists:
+{gate_lines or "(none)"}
+
 Rules:
 - Use responsibilities, not technologies, to choose agents.
+- Return one explicit selected/omitted decision for EVERY enabled specialist
+  except triage. Every decision requires a concise reason.
+- Selected decisions must match exactly the specialist agents present in nodes.
 - Never substitute a disabled specialist with another agent.
-- If a disabled specialist is required, add its key to
-  required_disabled_agents and do not assign its work to another role.
+- If a disabled specialist is materially required, add it to
+  required_disabled_agents and do not assign its work elsewhere.
+- Risk flags are material gates, not generic labels. Canonical flags:
+  functional_ambiguity, backlog_coordination, cross_layer, ux_change,
+  backend_change, frontend_change, persistence_change, security_surface,
+  behavior_regression, technical_review, deployment_change,
+  performance_risk, runtime_reliability, analytics_data.
+- A declared risk flag requires its responsible enabled specialist.
+- Durable artifact names: functional_spec, technical_spec, adr, runbook,
+  release_notes, project_docs.
+- Any durable artifact requires Documentation when enabled.
+- functional_spec requires Product when enabled.
+- technical_spec or adr requires Architecture when enabled.
+- runbook requires DevOps when enabled.
+- Do NOT select Documentation merely to narrate every subtask.
+- Do NOT select Testing merely because code changed. Select it when changed
+  behavior, regression risk, logic, contracts, integrations, edge cases, or
+  defined security/accessibility checks justify repeatable validation.
+- Do NOT select Security without material security/privacy surface.
+- Do NOT select Architecture for a tiny local change with no structural impact.
 - Create independent branches when work can proceed independently.
 - Express ordering only through depends_on.
 - Prefer direct specialist-to-specialist flow when the dependency is clear.
-- Include testing and reviewer when technical changes require validation,
-  if those agents are enabled.
-- Include documentation for durable work when documentation is enabled.
 - Do not create a human-QA node; human QA happens after the DAG.
-- Keep nodes cohesive and avoid duplicate responsibility.
+- Keep nodes cohesive. Avoid duplicate responsibility and revisiting agents
+  without new information.
 
 Return exactly this shape:
 {{
   "request": "...",
-  "required_disabled_agents": ["ux_ui"],
+  "profile": {{
+    "summary": "short non-sensitive factual summary",
+    "classification": "short stable category",
+    "risk_flags": ["behavior_regression"],
+    "durable_artifacts": []
+  }},
+  "agent_decisions": [
+    {{
+      "agent": "architecture",
+      "selected": false,
+      "gate": "cross_layer",
+      "reason": "No structural or cross-layer change."
+    }}
+  ],
+  "required_disabled_agents": [],
   "notes": "...",
   "nodes": [
     {{
-      "id": "architecture",
-      "agent": "architecture",
+      "id": "backend",
+      "agent": "backend",
       "objective": "...",
       "depends_on": []
     }}
