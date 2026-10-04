@@ -502,6 +502,7 @@ class AgentDevKitGateway:
                     "id": node.id,
                     "agent": node.agent,
                     "objective": node.objective,
+                    "phase": node.phase,
                     "depends_on": list(node.depends_on),
                     "status": node.status,
                     "output": node.output,
