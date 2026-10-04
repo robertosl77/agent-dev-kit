@@ -1,0 +1,69 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Sequence
+
+from agent_dev_kit.agent_definition import AgentDefinition
+
+
+@dataclass(slots=True)
+class AgentHandle:
+    """Opaque provider-specific agent wrapped by a provider-neutral handle."""
+
+    provider: str
+    name: str
+    native: Any
+
+
+@dataclass(slots=True)
+class ProviderRunResult:
+    """Normalized result returned by every provider implementation."""
+
+    output: str
+    active_agent: AgentHandle
+    native_result: Any | None = None
+
+
+class AgentProvider(ABC):
+    """Contract every concrete agent/model provider must implement."""
+
+    key: str
+
+    @abstractmethod
+    def create_agent(
+        self,
+        definition: AgentDefinition,
+        *,
+        handoffs: Sequence[AgentHandle] = (),
+    ) -> AgentHandle:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def run(
+        self,
+        agent: AgentHandle,
+        message: str,
+        *,
+        session: Any | None = None,
+    ) -> ProviderRunResult:
+        raise NotImplementedError
+
+    @abstractmethod
+    def run_sync(
+        self,
+        agent: AgentHandle,
+        message: str,
+        *,
+        session: Any | None = None,
+    ) -> ProviderRunResult:
+        raise NotImplementedError
+
+    def _validate_handle(self, agent: AgentHandle) -> None:
+        if agent.provider != self.key:
+            raise ValueError(
+                f"Agent belongs to provider '{agent.provider}', "
+                f"not '{self.key}'."
+            )
+
+    def _validate_handoffs(self, handoffs: Sequence[AgentHandle]) -> None:
+        for handoff in handoffs:
+            self._validate_handle(handoff)
