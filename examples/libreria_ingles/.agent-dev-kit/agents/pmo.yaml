@@ -1,0 +1,13 @@
+agent: pmo
+
+extra_instructions:
+  - "Usar T-xxx para tareas legacy existentes."
+  - "Usar M-xxx para modernizaciones."
+  - "QA funcional final es humano."
+  - "Cada tarea debe trabajar en su propia rama salvo excepción explícita."
+  - "No trabajar directamente sobre main sin autorización explícita."
+
+project_rules:
+  backlog_source: github_issues
+  workflow: scrum_light
+  final_qa: human
