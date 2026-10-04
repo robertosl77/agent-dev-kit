@@ -19,7 +19,7 @@ class AgentHandle:
 class ProviderRunResult:
     """Normalized result returned by every provider implementation."""
 
-    output: str
+    output: Any
     active_agent: AgentHandle
     native_result: Any | None = None
 
@@ -38,6 +38,27 @@ class AgentProvider(ABC):
         tools: Sequence[ToolHandle] = (),
     ) -> AgentHandle:
         raise NotImplementedError
+
+    def supports_structured_output(self) -> bool:
+        """Whether this provider can enforce a typed structured final output."""
+
+        return False
+
+    def create_structured_agent(
+        self,
+        definition: AgentDefinition,
+        *,
+        output_type: type[Any],
+    ) -> AgentHandle:
+        """Create an isolated agent whose final output is validated by the provider.
+
+        Providers without native structured-output support intentionally fail
+        here so callers can choose an explicit text fallback path.
+        """
+
+        raise NotImplementedError(
+            f"Provider '{self.key}' does not support structured output."
+        )
 
     def set_handoffs(
         self,
