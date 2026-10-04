@@ -6,6 +6,10 @@ import yaml
 
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.provider_config import ProviderConfig, ProviderTargetConfig
+from agent_dev_kit.git_policy import (
+    GitWorkflowConfig,
+    git_workflow_from_mapping,
+)
 from agent_dev_kit.preferences import (
     PreferenceRule,
     ProjectPreferenceConfig,
@@ -34,6 +38,7 @@ class ProjectAgentDevKitConfig:
     provider: ProviderConfig
     enabled_agents: tuple[str, ...]
     agents: Mapping[str, ContextualAgentConfig]
+    git_workflow: GitWorkflowConfig = field(default_factory=GitWorkflowConfig)
     preference_config: ProjectPreferenceConfig = field(
         default_factory=ProjectPreferenceConfig
     )
@@ -156,6 +161,9 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
         ),
         enabled_agents=enabled_agents,
         agents=contextual_agents,
+        git_workflow=git_workflow_from_mapping(
+            project_data.get("git_workflow")
+        ),
         preference_config=load_project_preference_config(
             config_dir / "preferences.yaml"
         ),
@@ -197,11 +205,24 @@ def apply_project_context(
         default_flow_style=False,
     ).strip()
 
+    git_workflow_yaml = yaml.safe_dump(
+        config.git_workflow.to_mapping(),
+        allow_unicode=True,
+        sort_keys=True,
+        default_flow_style=False,
+    ).strip()
+
     context_parts = [
         "Consuming project context:",
         f"Project name: {config.name}",
         "Configured stack:",
         stack_yaml or "{}",
+        "Git workflow policy:",
+        git_workflow_yaml,
+        (
+            "Git mutations that conflict with this policy must be rejected. "
+            "A protected-branch exception requires explicit human authorization."
+        ),
     ]
 
     if rules:

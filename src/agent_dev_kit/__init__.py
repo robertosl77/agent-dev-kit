@@ -58,6 +58,12 @@ from .provider_registry import ProviderRegistry, build_default_registry
 from .execution import ProviderRuntime
 from .gateway import AgentDevKitGateway
 from .mcp_server import build_mcp_server, run_mcp_server
+from .git_policy import (
+    GitPolicyGuard,
+    GitPolicyViolation,
+    GitWorkflowConfig,
+    git_workflow_from_mapping,
+)
 from .provider_errors import (
     ProviderAuthenticationError,
     ProviderError,
@@ -80,6 +86,10 @@ __all__ = [
     "AgentDevKitGateway",
     "build_mcp_server",
     "run_mcp_server",
+    "GitPolicyGuard",
+    "GitPolicyViolation",
+    "GitWorkflowConfig",
+    "git_workflow_from_mapping",
     "ProviderError",
     "ProviderAuthenticationError",
     "ProviderRecoverableError",

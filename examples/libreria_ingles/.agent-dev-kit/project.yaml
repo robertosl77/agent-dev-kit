@@ -15,6 +15,27 @@ stack:
 provider:
   name: openai
 
+git_workflow:
+  branches:
+    production: main
+    integration: development
+  protected:
+    - main
+    - development
+  task_branch:
+    base: development
+    naming: "{kind}/{issue}-{slug}"
+  pull_requests:
+    task_target: development
+    release_source: development
+    release_target: main
+    require_issue_reference: true
+  sync:
+    require_updated_base_before_task: true
+  direct_writes:
+    protected_branches: deny
+    exception: explicit_human_authorization
+
 agents:
   enabled:
     - triage

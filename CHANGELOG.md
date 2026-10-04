@@ -55,6 +55,17 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - proyecto fijado al iniciar el servidor;
 - rechazo de bind HTTP público directo en v0.1.0.
 
+### Git workflow
+
+- política Git configurable por proyecto consumidor;
+- `main`/producción y rama de integración separadas;
+- ramas de tarea obligatoriamente creadas desde integración;
+- PR de tarea hacia integración y PR de release hacia producción;
+- ramas protegidas contra escritura directa;
+- excepción únicamente mediante autorización humana explícita;
+- `GitPolicyGuard` determinístico para integraciones Git;
+- recomendación de defensa en profundidad con Rulesets/Branch Protection.
+
 ### Calidad
 
 - documentación individual de los 16 agentes;
