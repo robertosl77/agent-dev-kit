@@ -82,9 +82,14 @@ comportamiento del proyecto consumidor.
 
 ## Repositorio privado
 
-Cuando Agent Dev Kit pase a privado, el contrato no cambia.
+Cuando Agent Dev Kit pase a privado, el contrato de versión no cambia.
 
 El entorno que instala la dependencia necesita credenciales Git válidas.
+
+Para HTTPS se recomienda que la autenticación la resuelva el entorno mediante
+credential manager, token efímero/CI secret o mecanismo corporativo equivalente.
+No se deben incrustar tokens en `pyproject.toml`, URLs versionadas ni
+`.agent-dev-kit/project.yaml`.
 
 Una alternativa basada en SSH es conceptualmente:
 
@@ -126,15 +131,36 @@ El código de los agentes proviene de la dependencia versionada.
 
 ## Checklist de release
 
+Flujo de release con las ramas actuales:
+
+```text
+task branches
+      ↓
+development
+      ↓ CI verde
+release PR
+development → main
+      ↓ CI verde del PR
+merge
+      ↓ CI verde de main
+tag SemVer
+      ↓
+GitHub Release
+```
+
 Antes de crear un tag:
 
 1. no debe existir una modernización funcional bloqueante abierta;
 2. `pyproject.toml` debe contener la versión correcta;
-3. tests y smoke test deben pasar en CI sobre `main`;
-4. README y documentación deben reflejar la estructura real;
-5. CHANGELOG debe describir la versión;
-6. el tag debe apuntar exactamente al commit verde de `main`;
-7. el release debe usar el mismo número del tag.
+3. toda la suite y el smoke E2E deben pasar en `development`;
+4. README, CHANGELOG y documentación deben reflejar la estructura real;
+5. debe abrirse un PR de release `development → main`;
+6. el CI del PR de release debe estar verde;
+7. después del merge, el CI del commit final de `main` debe estar verde;
+8. el tag debe apuntar exactamente a ese commit final de `main`;
+9. el GitHub Release debe usar el mismo número del tag.
+
+No se crea una rama `v0.1.0`: la versión se marca mediante tag.
 
 Para `v0.1.0`:
 
