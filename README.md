@@ -146,6 +146,7 @@ agents:
 - [Smoke test pre-versionado](docs/smoke_test.md)
 - [Interfaz MCP para clientes de chat](docs/interfaz_mcp.md)
 - [Distribución y versionado](docs/distribucion_versionado.md)
+- [Política Git por proyecto](docs/git_workflow.md)
 - [Proveedores](docs/proveedores.md)
 - [Documentación individual de agentes](docs/agentes/)
 
