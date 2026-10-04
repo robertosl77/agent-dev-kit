@@ -1,0 +1,4 @@
+**/.agent-dev-kit/runtime/
+__pycache__/
+.pytest_cache/
+*.pyc
