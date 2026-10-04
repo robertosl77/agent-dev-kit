@@ -1,0 +1,29 @@
+project:
+  name: LibreriaIngles
+
+stack:
+  backend:
+    language: Python
+    framework: FastAPI
+  frontend:
+    framework: Angular
+  ui:
+    framework: Bootstrap
+  database:
+    engine: SQLite
+
+provider:
+  name: openai
+
+agents:
+  enabled:
+    - pmo
+    - architecture
+    - ux_ui
+    - backend
+    - frontend
+    - database
+    - security
+    - testing
+    - reviewer
+    - documentation
