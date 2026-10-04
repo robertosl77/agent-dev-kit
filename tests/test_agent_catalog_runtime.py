@@ -27,6 +27,13 @@ class FakeProvider(AgentProvider):
             native=definition,
         )
 
+    def set_handoffs(self, agent, handoffs):
+        self._validate_handle(agent)
+        self._validate_handoffs(handoffs)
+        self.created.append(
+            (f"handoffs:{agent.name}", tuple(item.name for item in handoffs))
+        )
+
     async def run(self, agent, message, *, session=None):
         raise NotImplementedError
 
@@ -65,6 +72,8 @@ def test_only_enabled_agents_are_instantiated_and_triage_sees_only_them():
         ("Agent PMO", ()),
         ("Agent Testing", ()),
         ("Agent Triage", ("Agent PMO", "Agent Testing")),
+        ("handoffs:Agent PMO", ("Agent Triage",)),
+        ("handoffs:Agent Testing", ("Agent Triage",)),
     ]
 
 
