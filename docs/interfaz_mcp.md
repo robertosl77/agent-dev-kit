@@ -234,3 +234,20 @@ cliente, no al núcleo de Agent Dev Kit.
 
 Esto permite conservar la misma interfaz aunque el usuario cambie de ChatGPT a
 Claude, Gemini u otro host compatible con MCP.
+
+
+## Propuestas de mejora del orquestador
+
+`agent_dev_kit_orchestration_proposals` analiza señales repetidas de las trazas
+completadas disponibles en la sesión del gateway y devuelve propuestas
+estructuradas para revisión humana.
+
+La herramienta:
+
+- no crea Issues por sí sola;
+- no modifica gates ni código;
+- no cambia preferencias;
+- no ejecuta auto-optimización.
+
+Una integración GitHub autorizada puede convertir una propuesta aprobada en una
+Issue real fuera de este tool.
