@@ -144,6 +144,7 @@ agents:
 - [Preferencias persistentes del usuario](docs/preferencias_usuario.md)
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Smoke test pre-versionado](docs/smoke_test.md)
+- [Interfaz MCP para clientes de chat](docs/interfaz_mcp.md)
 - [Proveedores](docs/proveedores.md)
 - [Documentación individual de agentes](docs/agentes/)
 
@@ -189,3 +190,21 @@ Tarea multi-especialista:
 ```bash
 agent-dev-kit task . "descripción de la tarea"
 ```
+
+
+## MCP
+
+Exponer el proyecto a un host MCP local:
+
+```bash
+agent-dev-kit mcp .
+```
+
+Streamable HTTP local:
+
+```bash
+agent-dev-kit mcp . --transport streamable-http
+```
+
+El servidor queda vinculado al proyecto indicado al arrancar y no acepta
+rutas de repositorio desde las herramientas.
