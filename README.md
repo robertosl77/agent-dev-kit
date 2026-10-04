@@ -4,23 +4,47 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 ## Estado
 
-El proyecto está en etapa inicial de definición de responsabilidades y arquitectura.
+El proyecto está en etapa inicial de definición e implementación de su arquitectura base.
 
 ## Documentación
 
 - [Catálogo de agentes](docs/catalogo_agentes.md): responsabilidad, alcance, límites, entregables, herramientas y handoffs.
+- [Proveedores](docs/proveedores.md): capa abstracta que desacopla los agentes de OpenAI, Copilot, Claude u otros motores.
 - Las modernizaciones se gestionan mediante GitHub Issues con códigos `M-xxx`.
 
 ## Principio central
 
 Los agentes representan **responsabilidades** (Product, Architecture, Backend, Database, UX/UI, etc.).
 
-La tecnología concreta pertenece al proyecto consumidor:
+La tecnología concreta y el proveedor pertenecen al proyecto consumidor:
 
 ```text
-Agent Backend
-  ├── proyecto A → Python / FastAPI
-  └── proyecto B → Java / Spring Boot
+Proyecto A
+  Agent Backend → Python / FastAPI
+  Provider      → OpenAI
+
+Proyecto B
+  Agent Backend → Java / Spring Boot
+  Provider      → otro adaptador
 ```
 
-Los prompts, proveedores y comportamiento de ejecución se incorporarán en las siguientes modernizaciones.
+## Estructura actual
+
+```text
+agent-dev-kit/
+├── docs/
+│   ├── catalogo_agentes.md
+│   └── proveedores.md
+├── src/
+│   └── agent_dev_kit/
+│       ├── agent_definition.py
+│       ├── provider_config.py
+│       ├── provider_registry.py
+│       └── providers/
+│           ├── provider_base.py
+│           └── provider_openai.py
+├── tests/
+└── pyproject.toml
+```
+
+Los archivos `agent_*.py` se incorporarán a medida que se implementen los agentes del catálogo.
