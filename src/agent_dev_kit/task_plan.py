@@ -1,7 +1,8 @@
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
+from agent_dev_kit.planner_contract import planner_payload_to_mapping
 from agent_dev_kit.orchestration_policy import (
     ProjectRoutingPolicy,
     coerce_durable_artifact,
@@ -64,23 +65,34 @@ class TaskPlan:
         payload: str,
         *,
         require_agent_decisions: bool = False,
+        strict_schema: bool = False,
     ) -> "TaskPlan":
-        cleaned = payload.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            cleaned = "\n".join(lines).strip()
-
+        cleaned = _strip_fenced_json(payload)
         try:
             data = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise TaskPlanError("Triage did not return valid JSON.") from exc
+        return cls.from_payload(
+            data,
+            require_agent_decisions=require_agent_decisions,
+            strict_schema=strict_schema,
+        )
 
-        if not isinstance(data, dict):
-            raise TaskPlanError("Task plan root must be a JSON object.")
+    @classmethod
+    def from_payload(
+        cls,
+        payload: Any,
+        *,
+        require_agent_decisions: bool = False,
+        strict_schema: bool = False,
+    ) -> "TaskPlan":
+        try:
+            data = dict(planner_payload_to_mapping(payload))
+        except (TypeError, ValueError) as exc:
+            raise TaskPlanError(str(exc)) from exc
+
+        if strict_schema:
+            _validate_strict_plan_payload(data)
 
         raw_nodes = data.get("nodes") or []
         if not isinstance(raw_nodes, list):
@@ -88,7 +100,7 @@ class TaskPlan:
 
         nodes: list[TaskNode] = []
         for item in raw_nodes:
-            if not isinstance(item, dict):
+            if not isinstance(item, Mapping):
                 raise TaskPlanError("Each task node must be an object.")
             nodes.append(
                 TaskNode(
@@ -111,7 +123,7 @@ class TaskPlan:
         request = str(data.get("request") or "").strip()
 
         profile_data = data.get("profile") or {}
-        if not isinstance(profile_data, dict):
+        if not isinstance(profile_data, Mapping):
             raise TaskPlanError("'profile' must be an object.")
         profile = RequestProfile(
             summary=str(profile_data.get("summary") or request).strip(),
@@ -143,7 +155,7 @@ class TaskPlan:
 
         decisions: list[AgentGateDecision] = []
         for item in raw_decisions:
-            if not isinstance(item, dict):
+            if not isinstance(item, Mapping):
                 raise TaskPlanError(
                     "Each agent decision must be an object."
                 )
@@ -385,6 +397,151 @@ class TaskPlan:
         for node_id in by_id:
             visit(node_id)
 
+
+
+def _strip_fenced_json(payload: str) -> str:
+    cleaned = payload.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    return cleaned
+
+
+def _validate_strict_plan_payload(data: Mapping[str, Any]) -> None:
+    _require_exact_keys(
+        data,
+        required={
+            "request",
+            "profile",
+            "agent_decisions",
+            "required_disabled_agents",
+            "notes",
+            "nodes",
+        },
+        label="Task plan",
+    )
+
+    if not isinstance(data["request"], str) or not data["request"].strip():
+        raise TaskPlanError("'request' must be a non-empty string.")
+    if data["notes"] is not None and not isinstance(data["notes"], str):
+        raise TaskPlanError("'notes' must be a string or null.")
+
+    profile = data["profile"]
+    if not isinstance(profile, Mapping):
+        raise TaskPlanError("'profile' must be an object.")
+    _require_exact_keys(
+        profile,
+        required={
+            "summary",
+            "classification",
+            "risk_flags",
+            "durable_artifacts",
+        },
+        label="Task profile",
+    )
+    for field_name in ("summary", "classification"):
+        if (
+            not isinstance(profile[field_name], str)
+            or not profile[field_name].strip()
+        ):
+            raise TaskPlanError(
+                f"'profile.{field_name}' must be a non-empty string."
+            )
+    _require_list(profile["risk_flags"], "'profile.risk_flags'")
+    _require_list(
+        profile["durable_artifacts"],
+        "'profile.durable_artifacts'",
+    )
+
+    decisions = data["agent_decisions"]
+    _require_list(decisions, "'agent_decisions'")
+    for index, item in enumerate(decisions):
+        if not isinstance(item, Mapping):
+            raise TaskPlanError(
+                f"agent_decisions[{index}] must be an object."
+            )
+        _require_exact_keys(
+            item,
+            required={"agent", "selected", "gate", "reason"},
+            label=f"agent_decisions[{index}]",
+        )
+        if not isinstance(item["selected"], bool):
+            raise TaskPlanError(
+                f"agent_decisions[{index}].selected must be boolean."
+            )
+        for field_name in ("agent", "gate", "reason"):
+            if (
+                not isinstance(item[field_name], str)
+                or not item[field_name].strip()
+            ):
+                raise TaskPlanError(
+                    f"agent_decisions[{index}].{field_name} "
+                    "must be a non-empty string."
+                )
+
+    required_disabled = data["required_disabled_agents"]
+    _require_list(
+        required_disabled,
+        "'required_disabled_agents'",
+    )
+    if any(not isinstance(item, str) for item in required_disabled):
+        raise TaskPlanError(
+            "'required_disabled_agents' must contain only strings."
+        )
+
+    nodes = data["nodes"]
+    _require_list(nodes, "'nodes'")
+    for index, item in enumerate(nodes):
+        if not isinstance(item, Mapping):
+            raise TaskPlanError(f"nodes[{index}] must be an object.")
+        _require_exact_keys(
+            item,
+            required={"id", "agent", "phase", "objective", "depends_on"},
+            label=f"nodes[{index}]",
+        )
+        for field_name in ("id", "agent", "phase", "objective"):
+            if (
+                not isinstance(item[field_name], str)
+                or not item[field_name].strip()
+            ):
+                raise TaskPlanError(
+                    f"nodes[{index}].{field_name} must be a non-empty string."
+                )
+        _require_list(item["depends_on"], f"nodes[{index}].depends_on")
+        if any(not isinstance(value, str) for value in item["depends_on"]):
+            raise TaskPlanError(
+                f"nodes[{index}].depends_on must contain only strings."
+            )
+
+
+def _require_exact_keys(
+    value: Mapping[str, Any],
+    *,
+    required: set[str],
+    label: str,
+) -> None:
+    actual = set(value)
+    missing = required - actual
+    unknown = actual - required
+    if missing:
+        raise TaskPlanError(
+            f"{label} missing required field(s): "
+            + ", ".join(sorted(missing))
+        )
+    if unknown:
+        raise TaskPlanError(
+            f"{label} contains unknown field(s): "
+            + ", ".join(sorted(unknown))
+        )
+
+
+def _require_list(value: Any, label: str) -> None:
+    if not isinstance(value, list):
+        raise TaskPlanError(f"{label} must be a list.")
 
 def _coerce_contract(coercer, value: str) -> str:
     try:
