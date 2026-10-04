@@ -30,6 +30,8 @@ Scope:
 - detect when one issue is actually a subtask of another;
 - recommend sequencing between independent and dependent items;
 - review completed iterations and capture actionable lessons;
+- coordinate release-readiness work and operational/security follow-ups without taking over technical ownership;
+- turn post-incident/post-release learnings into traceable backlog when action is required;
 - surface stale, duplicated, contradictory, or underspecified backlog items.
 
 Scrum-style operating model:
