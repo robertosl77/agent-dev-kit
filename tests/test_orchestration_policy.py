@@ -116,7 +116,7 @@ def test_policy_rejects_agent_without_gate():
                     "Added by habit.",
                 ),
             ),
-            planned_agents=("frontend", "architecture"),
+            planned_steps=(("frontend", "implementation"), ("architecture", "analysis")),
             required_disabled_agents=(),
             enabled_agents=("frontend", "architecture"),
         )
@@ -130,7 +130,7 @@ def test_policy_rejects_missing_risk_specialist():
             decisions=(
                 AgentDecision("backend", True, "Changes API logic."),
             ),
-            planned_agents=("backend",),
+            planned_steps=(("backend", "implementation"),),
             required_disabled_agents=(),
             enabled_agents=("backend", "security"),
         )
@@ -148,7 +148,7 @@ def test_policy_requires_disabled_specialist_to_be_declared():
                 AgentDecision("frontend", True, "Implements UI."),
                 AgentDecision("ux_ui", True, "Defines UX."),
             ),
-            planned_agents=("frontend",),
+            planned_steps=(("frontend", "implementation"),),
             required_disabled_agents=(),
             enabled_agents=("frontend",),
         )
@@ -162,3 +162,47 @@ def test_explicit_user_force_is_allowed_but_not_triage():
 
     with pytest.raises(OrchestrationPolicyError, match="Triage"):
         required_agents_for_gates((), forced_agents=("triage",))
+
+
+def test_same_specialist_can_participate_in_distinct_phases():
+    validate_plan_policy(
+        gates=("performance_concern",),
+        forced_agents=(),
+        decisions=(
+            AgentDecision(
+                "performance",
+                True,
+                "Diagnose and verify measurable performance.",
+            ),
+        ),
+        planned_steps=(
+            ("performance", "analysis"),
+            ("performance", "verification"),
+        ),
+        required_disabled_agents=(),
+        enabled_agents=("performance",),
+    )
+
+
+def test_same_specialist_cannot_repeat_same_phase():
+    with pytest.raises(
+        OrchestrationPolicyError,
+        match="Duplicate specialist phase",
+    ):
+        validate_plan_policy(
+            gates=("performance_concern",),
+            forced_agents=(),
+            decisions=(
+                AgentDecision(
+                    "performance",
+                    True,
+                    "Measure performance.",
+                ),
+            ),
+            planned_steps=(
+                ("performance", "verification"),
+                ("performance", "verification"),
+            ),
+            required_disabled_agents=(),
+            enabled_agents=("performance",),
+        )
