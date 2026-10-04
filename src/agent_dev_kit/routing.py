@@ -64,14 +64,18 @@ def build_enabled_capability_graph(
 ) -> dict[str, tuple[str, ...]]:
     """Filter the permanent graph to the agents active in one project."""
 
-    enabled = {normalize_agent_key(item) for item in enabled_agents}
+    enabled_order = tuple(
+        dict.fromkeys(normalize_agent_key(item) for item in enabled_agents)
+    )
+    enabled = set(enabled_order)
+
     return {
         source: tuple(
             target
             for target in DEFAULT_CAPABILITY_GRAPH.get(source, ())
             if target in enabled
         )
-        for source in enabled
+        for source in enabled_order
     }
 
 
