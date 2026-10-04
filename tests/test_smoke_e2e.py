@@ -62,8 +62,27 @@ class SmokeProvider(AgentProvider):
             if "ux_ui" not in enabled_block:
                 return ProviderRunResult(
                     output="""{
-                      "request": "Fix progress report",
+                      "policy_version": 1,
+                      "request": "Redesign progress report",
+                      "request_summary": "Redesign the progress report experience.",
+                      "request_class": "feature",
+                      "issue_reference": "T-SMOKE-UX",
+                      "gates": ["ux_change"],
+                      "forced_agents": [],
                       "required_disabled_agents": ["ux_ui"],
+                      "decisions": [
+                        {
+                          "agent": "ux_ui",
+                          "selected": true,
+                          "reason": "The requested work is UX design."
+                        },
+                        {
+                          "agent": "frontend",
+                          "selected": false,
+                          "reason": "This request only asks for the design."
+                        }
+                      ],
+                      "artifacts": [],
                       "nodes": []
                     }""",
                     active_agent=agent,
@@ -71,55 +90,92 @@ class SmokeProvider(AgentProvider):
 
             return ProviderRunResult(
                 output="""{
-                  "request": "Fix progress report data and UX",
+                  "policy_version": 1,
+                  "request": "Fix progress report data and UX and update technical spec",
+                  "request_summary": "Fix incorrect progress data, improve the report UX, and update the technical specification.",
+                  "request_class": "bug",
+                  "issue_reference": "T-SMOKE-001",
+                  "gates": [
+                    "architecture_change",
+                    "database_change",
+                    "ux_change",
+                    "backend_change",
+                    "frontend_change",
+                    "testing_required",
+                    "review_required",
+                    "durable_documentation"
+                  ],
+                  "forced_agents": [],
                   "required_disabled_agents": [],
+                  "decisions": [
+                    {"agent": "architecture", "selected": true, "reason": "Data and UI contracts cross layers."},
+                    {"agent": "database", "selected": true, "reason": "Progress persistence/model must be validated."},
+                    {"agent": "ux_ui", "selected": true, "reason": "The report experience changes."},
+                    {"agent": "backend", "selected": true, "reason": "Progress API behavior changes."},
+                    {"agent": "frontend", "selected": true, "reason": "The report screen changes."},
+                    {"agent": "testing", "selected": true, "reason": "Bug requires regression coverage."},
+                    {"agent": "reviewer", "selected": true, "reason": "Cross-layer change warrants independent technical review."},
+                    {"agent": "documentation", "selected": true, "reason": "Technical specification update was requested."},
+                    {"agent": "security", "selected": false, "reason": "No new security or trust surface is introduced."}
+                  ],
+                  "artifacts": [
+                    {"kind": "technical_spec", "action": "update"}
+                  ],
                   "nodes": [
                     {
                       "id": "architecture",
                       "agent": "architecture",
-                      "objective": "Define boundaries and contracts.",
+                      "objective": "Define the affected boundaries and contracts.",
+                      "phase": "design",
                       "depends_on": []
                     },
                     {
                       "id": "database",
                       "agent": "database",
-                      "objective": "Validate progress data model.",
+                      "objective": "Validate the progress data model.",
+                      "phase": "analysis",
                       "depends_on": ["architecture"]
                     },
                     {
                       "id": "ux",
                       "agent": "ux_ui",
-                      "objective": "Define improved report experience.",
+                      "objective": "Define the improved report experience.",
+                      "phase": "design",
                       "depends_on": ["architecture"]
                     },
                     {
                       "id": "backend",
                       "agent": "backend",
-                      "objective": "Implement correct progress API.",
+                      "objective": "Implement the corrected progress API.",
+                      "phase": "implementation",
                       "depends_on": ["database"]
                     },
                     {
                       "id": "frontend",
                       "agent": "frontend",
-                      "objective": "Implement the report screen.",
+                      "objective": "Implement the improved report screen.",
+                      "phase": "implementation",
                       "depends_on": ["ux", "backend"]
                     },
                     {
                       "id": "testing",
                       "agent": "testing",
-                      "objective": "Automate technical validation.",
+                      "objective": "Automate regression validation.",
+                      "phase": "verification",
                       "depends_on": ["backend", "frontend"]
                     },
                     {
                       "id": "reviewer",
                       "agent": "reviewer",
-                      "objective": "Review the complete delivery.",
+                      "objective": "Review the complete cross-layer delivery.",
+                      "phase": "verification",
                       "depends_on": ["testing"]
                     },
                     {
                       "id": "documentation",
                       "agent": "documentation",
-                      "objective": "Document task evidence and durable decisions.",
+                      "objective": "Update the technical specification with durable decisions.",
+                      "phase": "documentation",
                       "depends_on": ["reviewer"]
                     }
                   ]
@@ -169,6 +225,15 @@ provider:
   fallbacks:
     - name: backup
 
+documentation:
+  templates:
+    technical_spec: docs/templates/technical-spec.md
+
+orchestration:
+  trace:
+    path: .agent-dev-kit/runtime/orchestration.jsonl
+    retain_request_text: false
+
 agents:
   enabled:
 {enabled}
@@ -189,6 +254,11 @@ preferences:
     agents:
       - documentation
 """,
+    )
+
+    write(
+        tmp_path / "docs" / "templates" / "technical-spec.md",
+        "# Technical specification template\n",
     )
 
     config = load_project_config(tmp_path)
@@ -254,7 +324,8 @@ def test_end_to_end_consumer_flow_with_dag_preferences_and_fallback(tmp_path):
 
     plan = runtime.run_with_fallback_sync(
         lambda kit: kit.plan_task_sync(
-            "The progress report has incorrect data and poor UX."
+            "The progress report has incorrect data and poor UX. "
+            "Update the technical specification too."
         ),
         confirm_switch=lambda current, next_target, error: True,
     )
@@ -266,6 +337,23 @@ def test_end_to_end_consumer_flow_with_dag_preferences_and_fallback(tmp_path):
 
     assert result.is_complete
     assert runtime.current_target.provider == "backup"
+    assert result.policy_version == 1
+    assert result.trace is not None
+    assert result.trace.raw_request is None
+    assert result.trace.provider_calls == 10
+    assert result.trace.revisits == 1
+    assert "security" not in [node.agent for node in result.nodes]
+    assert (
+        result.trace.request_summary
+        == "Fix incorrect progress data, improve the report UX, and update the technical specification."
+    )
+    trace_file = (
+        tmp_path
+        / ".agent-dev-kit"
+        / "runtime"
+        / "orchestration.jsonl"
+    )
+    assert trace_file.is_file()
 
     assert result.node("architecture").evidence["provider"] == "primary"
     assert result.node("database").evidence["provider"] == "primary"
