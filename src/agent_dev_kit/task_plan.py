@@ -117,7 +117,10 @@ class TaskPlan:
 
         self._validate_acyclic(by_id)
 
-    def validate_enabled(self, enabled_agents: Iterable[str]) -> None:
+    def missing_agents(
+        self,
+        enabled_agents: Iterable[str],
+    ) -> tuple[str, ...]:
         enabled = {normalize_agent_key(item) for item in enabled_agents}
         missing = set(self.required_disabled_agents)
         missing.update(
@@ -125,6 +128,10 @@ class TaskPlan:
             for node in self.nodes
             if node.agent not in enabled
         )
+        return tuple(sorted(missing))
+
+    def validate_enabled(self, enabled_agents: Iterable[str]) -> None:
+        missing = self.missing_agents(enabled_agents)
         if missing:
             raise DisabledAgentRequiredError(missing)
 
@@ -171,3 +178,57 @@ class TaskPlan:
 
 def normalize_agent_key(value: str) -> str:
     return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def build_planning_prompt(
+    request: str,
+    *,
+    enabled_agents: Iterable[str],
+    available_agents: Iterable[str],
+) -> str:
+    enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
+    available = tuple(normalize_agent_key(item) for item in available_agents)
+    disabled = tuple(item for item in available if item not in set(enabled))
+
+    return f"""Planning-only operation. Do not hand off.
+
+Analyze the user request and return a task execution DAG as JSON only.
+
+User request:
+{request}
+
+Enabled agent keys:
+{", ".join(enabled) or "(none)"}
+
+Known but disabled agent keys:
+{", ".join(disabled) or "(none)"}
+
+Rules:
+- Use responsibilities, not technologies, to choose agents.
+- Never substitute a disabled specialist with another agent.
+- If a disabled specialist is required, add its key to
+  required_disabled_agents and do not assign its work to another role.
+- Create independent branches when work can proceed independently.
+- Express ordering only through depends_on.
+- Prefer direct specialist-to-specialist flow when the dependency is clear.
+- Include testing and reviewer when technical changes require validation,
+  if those agents are enabled.
+- Include documentation for durable work when documentation is enabled.
+- Do not create a human-QA node; human QA happens after the DAG.
+- Keep nodes cohesive and avoid duplicate responsibility.
+
+Return exactly this shape:
+{{
+  "request": "...",
+  "required_disabled_agents": ["ux_ui"],
+  "notes": "...",
+  "nodes": [
+    {{
+      "id": "architecture",
+      "agent": "architecture",
+      "objective": "...",
+      "depends_on": []
+    }}
+  ]
+}}
+"""
