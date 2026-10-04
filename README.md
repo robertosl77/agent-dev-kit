@@ -140,6 +140,7 @@ agents:
 - [Activación de agentes](docs/activacion_agentes.md)
 - [Contexto del proyecto](docs/contexto_proyecto.md)
 - [Herramientas por agente](docs/herramientas_agentes.md)
+- [Coordinación multi-especialista](docs/orquestacion_multiagente.md)
 - [Proveedores](docs/proveedores.md)
 - [Documentación individual de agentes](docs/agentes/)
 
