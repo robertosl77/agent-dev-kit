@@ -6,7 +6,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
-La rama `development` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `development → main`, CI final y creación manual del tag.
+La rama `develop` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `development → main`, CI final y creación manual del tag.
 
 ## Principios
 
@@ -127,12 +127,19 @@ provider:
 git_workflow:
   branches:
     production: main
-    integration: development
+    integration: develop
 
 orchestration:
   trace:
     enabled: true
     persist_full_request: false
+  policies:
+    - id: auth_requires_review
+      when:
+        any_risk_flags:
+          - auth_change
+      require_agents:
+        - reviewer
 
 agents:
   enabled:
