@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from agent_dev_kit.agent_catalog import AVAILABLE_AGENT_KEYS, create_enabled_agents
@@ -6,6 +7,12 @@ from agent_dev_kit.project_config import ProjectAgentDevKitConfig
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 from agent_dev_kit.tooling import ToolRegistry
 from agent_dev_kit.preferences import PreferenceProfile
+from agent_dev_kit.orchestration import (
+    OrchestrationTrace,
+    OrchestrationTraceStore,
+    fingerprint_request,
+    fingerprint_routing,
+)
 from agent_dev_kit.task_plan import (
     TaskNode,
     TaskPlan,
@@ -21,6 +28,7 @@ class DevAgentKit:
     config: ProjectAgentDevKitConfig
     provider: AgentProvider
     agents: dict[str, AgentHandle]
+    trace_store: OrchestrationTraceStore | None = None
 
     @classmethod
     def build(
@@ -31,6 +39,13 @@ class DevAgentKit:
         tool_registry: ToolRegistry | None = None,
         preference_profile: PreferenceProfile | None = None,
     ) -> "DevAgentKit":
+        trace_store = None
+        if config.orchestration.trace_enabled and config.project_root is not None:
+            trace_path = (
+                config.project_root / config.orchestration.trace_path
+            )
+            trace_store = OrchestrationTraceStore(trace_path)
+
         return cls(
             config=config,
             provider=provider,
@@ -40,6 +55,7 @@ class DevAgentKit:
                 tool_registry=tool_registry,
                 preference_profile=preference_profile,
             ),
+            trace_store=trace_store,
         )
 
     def conversation(
@@ -72,12 +88,25 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
         )
+        started = perf_counter()
         result = self.provider.run_sync(
             self.agents["triage"],
             prompt,
             session=session,
         )
-        return TaskPlan.from_json(result.output)
+        planning_ms = (perf_counter() - started) * 1000
+        plan = TaskPlan.from_json(
+            result.output,
+            require_agent_decisions=True,
+        )
+        plan.request = request
+        plan.validate_orchestration_policy(self.agents.keys())
+        plan.trace = self._build_trace(
+            plan,
+            request=request,
+            planning_ms=planning_ms,
+        )
+        return plan
 
     async def plan_task(
         self,
@@ -97,12 +126,25 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
         )
+        started = perf_counter()
         result = await self.provider.run(
             self.agents["triage"],
             prompt,
             session=session,
         )
-        return TaskPlan.from_json(result.output)
+        planning_ms = (perf_counter() - started) * 1000
+        plan = TaskPlan.from_json(
+            result.output,
+            require_agent_decisions=True,
+        )
+        plan.request = request
+        plan.validate_orchestration_policy(self.agents.keys())
+        plan.trace = self._build_trace(
+            plan,
+            request=request,
+            planning_ms=planning_ms,
+        )
+        return plan
 
     def execute_plan_sync(
         self,
@@ -113,7 +155,10 @@ class DevAgentKit:
         """Execute ready DAG nodes sequentially while respecting dependencies."""
 
         plan.validate_structure()
+        plan.validate_orchestration_policy(self.agents.keys())
         plan.validate_enabled(self.agents.keys())
+        if plan.trace is not None:
+            plan.trace.status = "executing"
 
         while not plan.is_complete:
             ready = plan.ready_nodes()
@@ -125,6 +170,7 @@ class DevAgentKit:
             for node in ready:
                 self._execute_node_sync(plan, node, session=session)
 
+        self._complete_trace(plan)
         return plan
 
     async def execute_plan(
@@ -136,7 +182,10 @@ class DevAgentKit:
         """Async provider execution with deterministic DAG sequencing."""
 
         plan.validate_structure()
+        plan.validate_orchestration_policy(self.agents.keys())
         plan.validate_enabled(self.agents.keys())
+        if plan.trace is not None:
+            plan.trace.status = "executing"
 
         while not plan.is_complete:
             ready = plan.ready_nodes()
@@ -148,6 +197,7 @@ class DevAgentKit:
             for node in ready:
                 await self._execute_node(plan, node, session=session)
 
+        self._complete_trace(plan)
         return plan
 
     def _execute_node_sync(
@@ -159,6 +209,13 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         node.status = "running"
+        started = perf_counter()
+        if plan.trace is not None:
+            attempts = plan.trace.node_attempts.get(node.id, 0) + 1
+            plan.trace.node_attempts[node.id] = attempts
+            plan.trace.model_calls += 1
+            if attempts > 1:
+                plan.trace.revisits += 1
         try:
             result = self.provider.run_sync(
                 handle,
@@ -167,10 +224,21 @@ class DevAgentKit:
             )
         except Exception:
             node.status = "pending"
+            if plan.trace is not None:
+                plan.trace.status = "interrupted"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise
 
         if result.active_agent.name != handle.name:
             node.status = "blocked"
+            if plan.trace is not None:
+                plan.trace.handoffs += 1
+                plan.trace.status = "blocked"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise TaskPlanError(
                 f"Node '{node.id}' handed off unexpectedly from "
                 f"'{handle.name}' to '{result.active_agent.name}'. "
@@ -183,6 +251,10 @@ class DevAgentKit:
             "active_agent": result.active_agent.name,
         }
         node.status = "completed"
+        if plan.trace is not None:
+            plan.trace.node_durations_ms[node.id] = (
+                perf_counter() - started
+            ) * 1000
 
     async def _execute_node(
         self,
@@ -193,6 +265,13 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         node.status = "running"
+        started = perf_counter()
+        if plan.trace is not None:
+            attempts = plan.trace.node_attempts.get(node.id, 0) + 1
+            plan.trace.node_attempts[node.id] = attempts
+            plan.trace.model_calls += 1
+            if attempts > 1:
+                plan.trace.revisits += 1
         try:
             result = await self.provider.run(
                 handle,
@@ -201,10 +280,21 @@ class DevAgentKit:
             )
         except Exception:
             node.status = "pending"
+            if plan.trace is not None:
+                plan.trace.status = "interrupted"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise
 
         if result.active_agent.name != handle.name:
             node.status = "blocked"
+            if plan.trace is not None:
+                plan.trace.handoffs += 1
+                plan.trace.status = "blocked"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise TaskPlanError(
                 f"Node '{node.id}' handed off unexpectedly from "
                 f"'{handle.name}' to '{result.active_agent.name}'. "
@@ -217,6 +307,10 @@ class DevAgentKit:
             "active_agent": result.active_agent.name,
         }
         node.status = "completed"
+        if plan.trace is not None:
+            plan.trace.node_durations_ms[node.id] = (
+                perf_counter() - started
+            ) * 1000
 
     @staticmethod
     def _node_prompt(plan: TaskPlan, node: TaskNode) -> str:
@@ -239,14 +333,64 @@ class DevAgentKit:
             "specialist; cross-specialist sequencing is owned by the task "
             "plan. If another responsibility is required, report it as a "
             "blocker.\n\n"
-            f"Original request:\n{plan.request}\n\n"
+            f"Task summary:\n{plan.profile.summary if plan.profile else plan.request}\n\n"
             f"Node id: {node.id}\n"
+            f"Phase: {node.phase}\n"
             f"Your responsibility: {node.agent}\n"
             f"Objective:\n{node.objective}\n\n"
             f"Completed dependency outputs:\n{dependencies}\n\n"
             "Return the node result and concise evidence useful to the "
             "following nodes and final documentation."
         )
+
+    def _build_trace(
+        self,
+        plan: TaskPlan,
+        *,
+        request: str,
+        planning_ms: float,
+    ) -> OrchestrationTrace:
+        profile = plan.profile
+        if profile is None:
+            raise TaskPlanError("Task profile is required for orchestration trace.")
+
+        return OrchestrationTrace(
+            request_summary=profile.summary,
+            request_fingerprint=fingerprint_request(
+                request,
+                profile.classification,
+            ),
+            classification=profile.classification,
+            risk_flags=profile.risk_flags,
+            durable_artifacts=profile.durable_artifacts,
+            agent_decisions=plan.agent_decisions,
+            dag=tuple(
+                {
+                    "id": node.id,
+                    "agent": node.agent,
+                    "phase": node.phase,
+                    "depends_on": list(node.depends_on),
+                }
+                for node in plan.nodes
+            ),
+            routing_fingerprint=fingerprint_routing(profile),
+            full_request=(
+                request
+                if self.config.orchestration.persist_full_request
+                else None
+            ),
+            model_calls=1,
+            node_durations_ms={"__planning__": planning_ms},
+            status="planned",
+        )
+
+    def _complete_trace(self, plan: TaskPlan) -> None:
+        if plan.trace is None:
+            return
+
+        plan.trace.status = "completed"
+        if self.trace_store is not None and not plan.trace.persisted:
+            self.trace_store.append(plan.trace)
 
     def _resolve_start_agent(self, start_agent: str | None) -> AgentHandle:
         if start_agent is not None:

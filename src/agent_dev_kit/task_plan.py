@@ -2,6 +2,15 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from agent_dev_kit.orchestration import (
+    AGENT_GATE_GUIDANCE,
+    AgentGateDecision,
+    OrchestrationTrace,
+    RequestProfile,
+    normalize_agent_key,
+    validate_gate_policy,
+)
+
 
 class TaskPlanError(ValueError):
     pass
@@ -20,6 +29,7 @@ class TaskNode:
     id: str
     agent: str
     objective: str
+    phase: str = "implementation"
     depends_on: tuple[str, ...] = ()
     status: str = "pending"
     output: str | None = None
@@ -32,9 +42,18 @@ class TaskPlan:
     nodes: list[TaskNode]
     required_disabled_agents: tuple[str, ...] = ()
     notes: str | None = None
+    profile: RequestProfile | None = None
+    agent_decisions: tuple[AgentGateDecision, ...] = ()
+    trace: OrchestrationTrace | None = None
+    decisions_explicit: bool = False
 
     @classmethod
-    def from_json(cls, payload: str) -> "TaskPlan":
+    def from_json(
+        cls,
+        payload: str,
+        *,
+        require_agent_decisions: bool = False,
+    ) -> "TaskPlan":
         cleaned = payload.strip()
         if cleaned.startswith("```"):
             lines = cleaned.splitlines()
@@ -67,10 +86,70 @@ class TaskPlan:
                         str(item.get("agent") or "")
                     ),
                     objective=str(item.get("objective") or "").strip(),
+                    phase=normalize_gate_key(
+                        str(item.get("phase") or "implementation")
+                    ),
                     depends_on=tuple(
                         str(value).strip()
                         for value in (item.get("depends_on") or [])
                     ),
+                )
+            )
+
+        request = str(data.get("request") or "").strip()
+
+        profile_data = data.get("profile") or {}
+        if not isinstance(profile_data, dict):
+            raise TaskPlanError("'profile' must be an object.")
+        profile = RequestProfile(
+            summary=str(profile_data.get("summary") or request).strip(),
+            classification=str(
+                profile_data.get("classification") or "unspecified"
+            ).strip(),
+            risk_flags=tuple(
+                normalize_gate_key(str(value))
+                for value in (profile_data.get("risk_flags") or [])
+                if str(value).strip()
+            ),
+            durable_artifacts=tuple(
+                normalize_gate_key(str(value))
+                for value in (profile_data.get("durable_artifacts") or [])
+                if str(value).strip()
+            ),
+        )
+
+        raw_decisions = data.get("agent_decisions")
+        decisions_explicit = raw_decisions is not None
+        if require_agent_decisions and not decisions_explicit:
+            raise TaskPlanError(
+                "Triage must return explicit agent_decisions for "
+                "orchestrated tasks."
+            )
+        raw_decisions = raw_decisions or []
+        if not isinstance(raw_decisions, list):
+            raise TaskPlanError("'agent_decisions' must be a list.")
+
+        decisions: list[AgentGateDecision] = []
+        for item in raw_decisions:
+            if not isinstance(item, dict):
+                raise TaskPlanError(
+                    "Each agent decision must be an object."
+                )
+            agent = normalize_agent_key(str(item.get("agent") or ""))
+            reason = str(item.get("reason") or "").strip()
+            gate = normalize_gate_key(
+                str(item.get("gate") or "responsibility")
+            )
+            if not agent or not reason:
+                raise TaskPlanError(
+                    "Each agent decision requires agent and reason."
+                )
+            decisions.append(
+                AgentGateDecision(
+                    agent=agent,
+                    selected=bool(item.get("selected")),
+                    gate=gate,
+                    reason=reason,
                 )
             )
 
@@ -80,7 +159,7 @@ class TaskPlan:
         )
 
         plan = cls(
-            request=str(data.get("request") or "").strip(),
+            request=request,
             nodes=nodes,
             required_disabled_agents=required_disabled,
             notes=(
@@ -88,6 +167,9 @@ class TaskPlan:
                 if data.get("notes") is not None
                 else None
             ),
+            profile=profile,
+            agent_decisions=tuple(decisions),
+            decisions_explicit=decisions_explicit,
         )
         plan.validate_structure()
         return plan
@@ -95,6 +177,18 @@ class TaskPlan:
     def validate_structure(self) -> None:
         if not self.request:
             raise TaskPlanError("Task plan request cannot be empty.")
+
+        if self.profile is None:
+            self.profile = RequestProfile(
+                summary=self.request,
+                classification="unspecified",
+            )
+        if not self.profile.summary:
+            raise TaskPlanError("Task profile summary cannot be empty.")
+        if not self.profile.classification:
+            raise TaskPlanError(
+                "Task profile classification cannot be empty."
+            )
 
         ids = [node.id for node in self.nodes]
         if any(not node_id for node_id in ids):
@@ -124,7 +218,56 @@ class TaskPlan:
                         f"Task node '{node.id}' cannot depend on itself."
                     )
 
+        decision_agents = [item.agent for item in self.agent_decisions]
+        if len(decision_agents) != len(set(decision_agents)):
+            raise TaskPlanError(
+                "agent_decisions must contain one decision per agent."
+            )
+
+        if self.agent_decisions:
+            selected = {
+                item.agent
+                for item in self.agent_decisions
+                if item.selected
+            }
+            node_agents = {node.agent for node in self.nodes}
+            if selected != node_agents:
+                raise TaskPlanError(
+                    "Selected agent decisions must match DAG node agents."
+                )
+
         self._validate_acyclic(by_id)
+
+    def validate_orchestration_policy(
+        self,
+        enabled_agents: Iterable[str],
+    ) -> None:
+        if not self.decisions_explicit:
+            raise TaskPlanError(
+                "Orchestrated plans require explicit gate decisions."
+            )
+
+        enabled = tuple(
+            normalize_agent_key(item) for item in enabled_agents
+        )
+        expected = {item for item in enabled if item != "triage"}
+        actual = {item.agent for item in self.agent_decisions}
+        missing_decisions = expected - actual
+        if missing_decisions:
+            raise TaskPlanError(
+                "Triage omitted gate decision(s) for enabled agent(s): "
+                + ", ".join(sorted(missing_decisions))
+            )
+
+        try:
+            validate_gate_policy(
+                profile=self.profile,
+                decisions=self.agent_decisions,
+                enabled_agents=enabled,
+                required_disabled_agents=self.required_disabled_agents,
+            )
+        except ValueError as exc:
+            raise TaskPlanError(str(exc)) from exc
 
     def missing_agents(
         self,
@@ -185,8 +328,14 @@ class TaskPlan:
             visit(node_id)
 
 
-def normalize_agent_key(value: str) -> str:
-    return value.strip().lower().replace("-", "_").replace(" ", "_")
+def normalize_gate_key(value: str) -> str:
+    return (
+        value.strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+        .replace("/", "_")
+    )
 
 
 def build_planning_prompt(
@@ -198,10 +347,18 @@ def build_planning_prompt(
     enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
     available = tuple(normalize_agent_key(item) for item in available_agents)
     disabled = tuple(item for item in available if item not in set(enabled))
+    specialists = tuple(item for item in enabled if item != "triage")
+
+    gate_lines = "\n".join(
+        f"- {agent}: {AGENT_GATE_GUIDANCE.get(agent, 'Use only when materially required.')}"
+        for agent in specialists
+    )
 
     return f"""Planning-only operation. Do not hand off.
 
-Analyze the user request and return a task execution DAG as JSON only.
+Analyze the user request and return the MINIMUM SUFFICIENT task execution DAG
+as JSON only. Every specialist call has cost. Never select an agent merely
+because it is available.
 
 User request:
 {request}
@@ -212,29 +369,66 @@ Enabled agent keys:
 Known but disabled agent keys:
 {", ".join(disabled) or "(none)"}
 
+Gate policy for enabled specialists:
+{gate_lines or "(none)"}
+
 Rules:
 - Use responsibilities, not technologies, to choose agents.
+- Return one explicit selected/omitted decision for EVERY enabled specialist
+  except triage. Every decision requires a concise reason.
+- Selected decisions must match exactly the specialist agents present in nodes.
 - Never substitute a disabled specialist with another agent.
-- If a disabled specialist is required, add its key to
-  required_disabled_agents and do not assign its work to another role.
+- If a disabled specialist is materially required, add it to
+  required_disabled_agents and do not assign its work elsewhere.
+- Risk flags are material gates, not generic labels. Canonical flags:
+  functional_ambiguity, backlog_coordination, cross_layer, ux_change,
+  backend_change, frontend_change, persistence_change, security_surface,
+  behavior_regression, technical_review, deployment_change,
+  performance_risk, runtime_reliability, analytics_data.
+- A declared risk flag requires its responsible enabled specialist.
+- Durable artifact names: functional_spec, technical_spec, adr, runbook,
+  release_notes, project_docs.
+- Any durable artifact requires Documentation when enabled.
+- functional_spec requires Product when enabled.
+- technical_spec or adr requires Architecture when enabled.
+- runbook requires DevOps when enabled.
+- Do NOT select Documentation merely to narrate every subtask.
+- Do NOT select Testing merely because code changed. Select it when changed
+  behavior, regression risk, logic, contracts, integrations, edge cases, or
+  defined security/accessibility checks justify repeatable validation.
+- Do NOT select Security without material security/privacy surface.
+- Do NOT select Architecture for a tiny local change with no structural impact.
 - Create independent branches when work can proceed independently.
 - Express ordering only through depends_on.
 - Prefer direct specialist-to-specialist flow when the dependency is clear.
-- Include testing and reviewer when technical changes require validation,
-  if those agents are enabled.
-- Include documentation for durable work when documentation is enabled.
 - Do not create a human-QA node; human QA happens after the DAG.
-- Keep nodes cohesive and avoid duplicate responsibility.
+- Keep nodes cohesive. Avoid duplicate responsibility and revisiting agents
+  without new information.
 
 Return exactly this shape:
 {{
   "request": "...",
-  "required_disabled_agents": ["ux_ui"],
+  "profile": {{
+    "summary": "short non-sensitive factual summary",
+    "classification": "short stable category",
+    "risk_flags": ["behavior_regression"],
+    "durable_artifacts": []
+  }},
+  "agent_decisions": [
+    {{
+      "agent": "architecture",
+      "selected": false,
+      "gate": "cross_layer",
+      "reason": "No structural or cross-layer change."
+    }}
+  ],
+  "required_disabled_agents": [],
   "notes": "...",
   "nodes": [
     {{
-      "id": "architecture",
-      "agent": "architecture",
+      "id": "backend",
+      "agent": "backend",
+      "phase": "implementation",
       "objective": "...",
       "depends_on": []
     }}

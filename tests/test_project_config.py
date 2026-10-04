@@ -226,3 +226,39 @@ agents:
     assert config.git_workflow.integration_branch == "development"
     assert config.git_workflow.task_branch_base == "development"
     assert config.git_workflow.task_pr_target == "development"
+
+
+def test_orchestration_trace_and_document_templates_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  trace:
+    enabled: true
+    path: .agent-dev-kit/runtime/traces.jsonl
+    persist_full_request: false
+  improvement_candidate_threshold: 4
+  document_templates:
+    functional_spec: .agent-dev-kit/templates/functional.md
+    technical_spec: .agent-dev-kit/templates/technical.md
+
+agents:
+  enabled:
+    - triage
+    - documentation
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.orchestration.trace_enabled is True
+    assert config.orchestration.persist_full_request is False
+    assert config.orchestration.improvement_candidate_threshold == 4
+    assert (
+        config.orchestration.document_templates["functional_spec"]
+        == ".agent-dev-kit/templates/functional.md"
+    )
+    assert config.project_root == tmp_path

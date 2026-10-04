@@ -142,6 +142,7 @@ agents:
 - [Contexto del proyecto](docs/contexto_proyecto.md)
 - [Herramientas por agente](docs/herramientas_agentes.md)
 - [Coordinación multi-especialista](docs/orquestacion_multiagente.md)
+- [Orquestación por riesgo y subgrafo mínimo](docs/orquestacion_por_riesgo.md)
 - [Preferencias persistentes del usuario](docs/preferencias_usuario.md)
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Smoke test pre-versionado](docs/smoke_test.md)

@@ -16,6 +16,16 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
 ### Coordinación
 
+- orquestación por riesgo con subgrafo mínimo suficiente;
+- decisión explícita de inclusión/omisión para cada especialista habilitado;
+- gates determinísticos para riesgos y artefactos durables;
+- fases explícitas por nodo (discovery/design/implementation/validation/documentation/release);
+- contexto reducido por nodo en lugar de reenviar el pedido completo;
+- trazas estructuradas con fingerprint, llamadas, revisitas y duración;
+- telemetría runtime local no versionada;
+- candidatos de mejora derivados de evidencia, siempre con revisión humana;
+- plantillas configurables para especificaciones funcionales/técnicas y otros artefactos;
+
 - Triage como punto de entrada;
 - grafo permanente de capacidades/handoffs;
 - DAG específico por tarea;
