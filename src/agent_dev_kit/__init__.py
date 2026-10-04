@@ -58,6 +58,17 @@ from .provider_registry import ProviderRegistry, build_default_registry
 from .execution import ProviderRuntime
 from .gateway import AgentDevKitGateway
 from .mcp_server import build_mcp_server, run_mcp_server
+from .orchestration import (
+    AGENT_GATE_GUIDANCE,
+    AgentGateDecision,
+    OrchestrationConfig,
+    OrchestrationImprovementCandidate,
+    OrchestrationTrace,
+    OrchestrationTraceStore,
+    RequestProfile,
+    detect_improvement_candidates,
+    fingerprint_request,
+)
 from .git_policy import (
     GitPolicyGuard,
     GitPolicyViolation,
@@ -90,6 +101,15 @@ __all__ = [
     "GitPolicyViolation",
     "GitWorkflowConfig",
     "git_workflow_from_mapping",
+    "AGENT_GATE_GUIDANCE",
+    "AgentGateDecision",
+    "OrchestrationConfig",
+    "OrchestrationImprovementCandidate",
+    "OrchestrationTrace",
+    "OrchestrationTraceStore",
+    "RequestProfile",
+    "detect_improvement_candidates",
+    "fingerprint_request",
     "ProviderError",
     "ProviderAuthenticationError",
     "ProviderRecoverableError",
