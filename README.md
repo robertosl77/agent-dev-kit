@@ -142,6 +142,7 @@ agents:
 - [Herramientas por agente](docs/herramientas_agentes.md)
 - [Coordinación multi-especialista](docs/orquestacion_multiagente.md)
 - [Preferencias persistentes del usuario](docs/preferencias_usuario.md)
+- [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Proveedores](docs/proveedores.md)
 - [Documentación individual de agentes](docs/agentes/)
 
@@ -172,3 +173,18 @@ pytest
 ```
 
 Las modernizaciones del framework se gestionan mediante GitHub Issues con códigos `M-xxx`.
+
+
+## Ejecución
+
+Conversación interactiva:
+
+```bash
+agent-dev-kit run .
+```
+
+Tarea multi-especialista:
+
+```bash
+agent-dev-kit task . "descripción de la tarea"
+```
