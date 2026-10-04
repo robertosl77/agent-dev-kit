@@ -25,6 +25,7 @@ from agent_dev_kit.project_config import (
     apply_project_context,
 )
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider
+from agent_dev_kit.tooling import ToolRegistry
 
 
 AgentDefinitionBuilder: TypeAlias = Callable[..., AgentDefinition]
@@ -104,6 +105,8 @@ def build_enabled_definitions(
 def create_enabled_agents(
     provider: AgentProvider,
     config: ProjectAgentDevKitConfig,
+    *,
+    tool_registry: ToolRegistry | None = None,
 ) -> dict[str, AgentHandle]:
     """Instantiate only enabled agents.
 
@@ -115,16 +118,31 @@ def create_enabled_agents(
     definitions = build_enabled_definitions(config)
     handles: dict[str, AgentHandle] = {}
 
+    def tools_for(key: str):
+        contextual = config.agent(key)
+        requested = contextual.tools if contextual is not None else ()
+        if not requested:
+            return ()
+        if tool_registry is None:
+            raise ValueError(
+                f"Agent '{key}' requests tools but no ToolRegistry was supplied."
+            )
+        return tool_registry.resolve(requested, provider=provider.key)
+
     for key, definition in definitions.items():
         if key == "triage":
             continue
-        handles[key] = provider.create_agent(definition)
+        handles[key] = provider.create_agent(
+            definition,
+            tools=tools_for(key),
+        )
 
     if "triage" in definitions:
         specialist_handles = tuple(handles.values())
         handles["triage"] = provider.create_agent(
             definitions["triage"],
             handoffs=specialist_handles,
+            tools=tools_for("triage"),
         )
 
         # Specialists return to Triage only when the topic leaves their scope.
