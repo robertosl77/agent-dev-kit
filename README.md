@@ -141,6 +141,7 @@ agents:
 - [Contexto del proyecto](docs/contexto_proyecto.md)
 - [Herramientas por agente](docs/herramientas_agentes.md)
 - [Coordinación multi-especialista](docs/orquestacion_multiagente.md)
+- [Preferencias persistentes del usuario](docs/preferencias_usuario.md)
 - [Proveedores](docs/proveedores.md)
 - [Documentación individual de agentes](docs/agentes/)
 
