@@ -126,6 +126,22 @@ def validate_plan_policy(
     )
     represented = set(planned) | disabled_required
 
+    expected_disabled = {item for item in required if item not in enabled}
+    missing_disabled = sorted(expected_disabled - disabled_required)
+    unexpected_disabled = sorted(disabled_required - expected_disabled)
+    if missing_disabled or unexpected_disabled:
+        details: list[str] = []
+        if missing_disabled:
+            details.append(
+                "required disabled not declared: " + ", ".join(missing_disabled)
+            )
+        if unexpected_disabled:
+            details.append(
+                "unexpected disabled declarations: "
+                + ", ".join(unexpected_disabled)
+            )
+        raise OrchestrationPolicyError("; ".join(details))
+
     missing = sorted(required - represented)
     if missing:
         raise OrchestrationPolicyError(
@@ -138,22 +154,6 @@ def validate_plan_policy(
             "Planned specialist(s) have no active gate or explicit user force: "
             + ", ".join(extra)
         )
-
-    expected_disabled = {item for item in required if item not in enabled}
-    if disabled_required != expected_disabled:
-        missing_disabled = sorted(expected_disabled - disabled_required)
-        unexpected_disabled = sorted(disabled_required - expected_disabled)
-        details: list[str] = []
-        if missing_disabled:
-            details.append(
-                "required disabled not declared: " + ", ".join(missing_disabled)
-            )
-        if unexpected_disabled:
-            details.append(
-                "unexpected disabled declarations: "
-                + ", ".join(unexpected_disabled)
-            )
-        raise OrchestrationPolicyError("; ".join(details))
 
     decision_list = tuple(decisions)
     selected = {
