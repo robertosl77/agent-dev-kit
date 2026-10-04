@@ -4,6 +4,7 @@ from typing import Any
 from agent_dev_kit.agent_catalog import create_enabled_agents
 from agent_dev_kit.project_config import ProjectAgentDevKitConfig
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
+from agent_dev_kit.tooling import ToolRegistry
 
 
 @dataclass(slots=True)
@@ -19,11 +20,17 @@ class DevAgentKit:
         cls,
         config: ProjectAgentDevKitConfig,
         provider: AgentProvider,
+        *,
+        tool_registry: ToolRegistry | None = None,
     ) -> "DevAgentKit":
         return cls(
             config=config,
             provider=provider,
-            agents=create_enabled_agents(provider, config),
+            agents=create_enabled_agents(
+                provider,
+                config,
+                tool_registry=tool_registry,
+            ),
         )
 
     def conversation(

@@ -94,3 +94,32 @@ def test_missing_project_yaml_fails(tmp_path):
         assert "project.yaml" in str(exc)
     else:
         raise AssertionError("Expected FileNotFoundError")
+
+
+def test_contextual_agent_tools_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+agents:
+  enabled:
+    - pmo
+""",
+    )
+    write(
+        tmp_path / ".agent-dev-kit" / "agents" / "pmo.yaml",
+        """
+agent: pmo
+tools:
+  - github_issues
+  - github_pull_requests
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.agent("pmo").tools == (
+        "github_issues",
+        "github_pull_requests",
+    )

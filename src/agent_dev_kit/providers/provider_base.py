@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from agent_dev_kit.agent_definition import AgentDefinition
+from agent_dev_kit.tooling import ToolHandle
 
 
 @dataclass(slots=True)
@@ -34,6 +35,7 @@ class AgentProvider(ABC):
         definition: AgentDefinition,
         *,
         handoffs: Sequence[AgentHandle] = (),
+        tools: Sequence[ToolHandle] = (),
     ) -> AgentHandle:
         raise NotImplementedError
 
@@ -83,3 +85,11 @@ class AgentProvider(ABC):
     def _validate_handoffs(self, handoffs: Sequence[AgentHandle]) -> None:
         for handoff in handoffs:
             self._validate_handle(handoff)
+
+    def _validate_tools(self, tools: Sequence[ToolHandle]) -> None:
+        for tool in tools:
+            if tool.provider != self.key:
+                raise ValueError(
+                    f"Tool '{tool.key}' belongs to provider '{tool.provider}', "
+                    f"not '{self.key}'."
+                )

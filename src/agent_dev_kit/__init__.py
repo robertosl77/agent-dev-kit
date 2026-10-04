@@ -35,6 +35,7 @@ from .agents import (
 )
 from .provider_config import ProviderConfig
 from .runtime import DevAgentKit, DevConversation
+from .tooling import ToolHandle, ToolRegistry
 from .provider_registry import ProviderRegistry, build_default_registry
 from .providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 
@@ -47,6 +48,8 @@ __all__ = [
     "ProviderRunResult",
     "DevAgentKit",
     "DevConversation",
+    "ToolHandle",
+    "ToolRegistry",
     "build_default_registry",
     "build_architecture_definition",
     "create_architecture_agent",
