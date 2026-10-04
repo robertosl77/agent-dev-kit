@@ -159,3 +159,33 @@ preferences:
         config.preference_config.preferences[0].id
         == "local_backend_rule"
     )
+
+
+def test_provider_fallbacks_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+provider:
+  name: primary
+  default_model: model-a
+  fallback_policy: ask
+  fallbacks:
+    - name: backup
+      default_model: model-b
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.provider.provider == "primary"
+    assert config.provider.fallback_policy == "ask"
+    assert len(config.provider.fallbacks) == 1
+    assert config.provider.fallbacks[0].provider == "backup"
+    assert config.provider.fallbacks[0].default_model == "model-b"
