@@ -34,6 +34,12 @@ from .agents import (
     create_ux_ui_agent,
 )
 from .provider_config import ProviderConfig, ProviderTargetConfig
+from .planner_contract import (
+    PlannerAgentDecision,
+    PlannerRequestProfile,
+    PlannerTaskNode,
+    StructuredTaskPlan,
+)
 from .preferences import (
     PreferenceCandidate,
     PreferenceProfile,
@@ -104,6 +110,10 @@ __all__ = [
     "AgentProvider",
     "ProviderConfig",
     "ProviderTargetConfig",
+    "StructuredTaskPlan",
+    "PlannerRequestProfile",
+    "PlannerAgentDecision",
+    "PlannerTaskNode",
     "ProviderRuntime",
     "AgentDevKitGateway",
     "build_mcp_server",

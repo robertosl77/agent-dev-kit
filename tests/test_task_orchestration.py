@@ -35,7 +35,7 @@ class PlanningProvider(AgentProvider):
     def run_sync(self, agent, message, *, session=None):
         self.calls.append((agent.name, message))
 
-        if agent.name == "Agent Triage" and "Planning-only operation" in message:
+        if agent.name == "Agent Triage Planner" and "Planning-only operation" in message:
             return ProviderRunResult(
                 output="""{
                   "request": "Fix report",
@@ -52,6 +52,7 @@ class PlanningProvider(AgentProvider):
                     {"agent": "documentation", "selected": true, "gate": "durable_artifact", "reason": "Technical specification must be synchronized."}
                   ],
                   "required_disabled_agents": [],
+                  "notes": null,
                   "nodes": [
                     {"id": "architecture", "agent": "architecture", "phase": "design", "objective": "Define boundaries", "depends_on": []},
                     {"id": "backend", "agent": "backend", "phase": "implementation", "objective": "Fix data", "depends_on": ["architecture"]},
