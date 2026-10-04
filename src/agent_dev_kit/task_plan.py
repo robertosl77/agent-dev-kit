@@ -164,6 +164,18 @@ class TaskPlan:
         if not self.request:
             raise TaskPlanError("Task plan request cannot be empty.")
 
+        if self.profile is None:
+            self.profile = RequestProfile(
+                summary=self.request,
+                classification="unspecified",
+            )
+        if not self.profile.summary:
+            raise TaskPlanError("Task profile summary cannot be empty.")
+        if not self.profile.classification:
+            raise TaskPlanError(
+                "Task profile classification cannot be empty."
+            )
+
         ids = [node.id for node in self.nodes]
         if any(not node_id for node_id in ids):
             raise TaskPlanError("Every task node requires an id.")
@@ -192,7 +204,56 @@ class TaskPlan:
                         f"Task node '{node.id}' cannot depend on itself."
                     )
 
+        decision_agents = [item.agent for item in self.agent_decisions]
+        if len(decision_agents) != len(set(decision_agents)):
+            raise TaskPlanError(
+                "agent_decisions must contain one decision per agent."
+            )
+
+        if self.agent_decisions:
+            selected = {
+                item.agent
+                for item in self.agent_decisions
+                if item.selected
+            }
+            node_agents = {node.agent for node in self.nodes}
+            if selected != node_agents:
+                raise TaskPlanError(
+                    "Selected agent decisions must match DAG node agents."
+                )
+
         self._validate_acyclic(by_id)
+
+    def validate_orchestration_policy(
+        self,
+        enabled_agents: Iterable[str],
+    ) -> None:
+        if not self.decisions_explicit:
+            raise TaskPlanError(
+                "Orchestrated plans require explicit gate decisions."
+            )
+
+        enabled = tuple(
+            normalize_agent_key(item) for item in enabled_agents
+        )
+        expected = {item for item in enabled if item != "triage"}
+        actual = {item.agent for item in self.agent_decisions}
+        missing_decisions = expected - actual
+        if missing_decisions:
+            raise TaskPlanError(
+                "Triage omitted gate decision(s) for enabled agent(s): "
+                + ", ".join(sorted(missing_decisions))
+            )
+
+        try:
+            validate_gate_policy(
+                profile=self.profile,
+                decisions=self.agent_decisions,
+                enabled_agents=enabled,
+                required_disabled_agents=self.required_disabled_agents,
+            )
+        except ValueError as exc:
+            raise TaskPlanError(str(exc)) from exc
 
     def missing_agents(
         self,
@@ -253,8 +314,14 @@ class TaskPlan:
             visit(node_id)
 
 
-def normalize_agent_key(value: str) -> str:
-    return value.strip().lower().replace("-", "_").replace(" ", "_")
+def normalize_gate_key(value: str) -> str:
+    return (
+        value.strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+        .replace("/", "_")
+    )
 
 
 def build_planning_prompt(
