@@ -37,6 +37,34 @@ class OpenAIProvider(AgentProvider):
         handoffs: Sequence[AgentHandle] = (),
         tools: Sequence[ToolHandle] = (),
     ) -> AgentHandle:
+        return self._create_agent(
+            definition,
+            handoffs=handoffs,
+            tools=tools,
+        )
+
+    def supports_structured_output(self) -> bool:
+        return True
+
+    def create_structured_agent(
+        self,
+        definition: AgentDefinition,
+        *,
+        output_type: type[Any],
+    ) -> AgentHandle:
+        return self._create_agent(
+            definition,
+            output_type=output_type,
+        )
+
+    def _create_agent(
+        self,
+        definition: AgentDefinition,
+        *,
+        handoffs: Sequence[AgentHandle] = (),
+        tools: Sequence[ToolHandle] = (),
+        output_type: type[Any] | None = None,
+    ) -> AgentHandle:
         self._validate_handoffs(handoffs)
         self._validate_tools(tools)
 
@@ -53,6 +81,8 @@ class OpenAIProvider(AgentProvider):
             kwargs["handoffs"] = [item.native for item in handoffs]
         if tools:
             kwargs["tools"] = [item.native for item in tools]
+        if output_type is not None:
+            kwargs["output_type"] = output_type
 
         native = self._agent_class(**kwargs)
         return AgentHandle(
@@ -127,7 +157,7 @@ class OpenAIProvider(AgentProvider):
     def _normalize_result(self, result: Any) -> ProviderRunResult:
         active = result.last_agent
         return ProviderRunResult(
-            output=str(result.final_output),
+            output=result.final_output,
             active_agent=AgentHandle(
                 provider=self.key,
                 name=active.name,
