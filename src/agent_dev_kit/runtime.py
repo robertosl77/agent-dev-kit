@@ -334,6 +334,7 @@ class DevAgentKit:
             "blocker.\n\n"
             f"Task summary:\n{plan.profile.summary if plan.profile else plan.request}\n\n"
             f"Node id: {node.id}\n"
+            f"Phase: {node.phase}\n"
             f"Your responsibility: {node.agent}\n"
             f"Objective:\n{node.objective}\n\n"
             f"Completed dependency outputs:\n{dependencies}\n\n"
@@ -366,6 +367,7 @@ class DevAgentKit:
                 {
                     "id": node.id,
                     "agent": node.agent,
+                    "phase": node.phase,
                     "depends_on": list(node.depends_on),
                 }
                 for node in plan.nodes
