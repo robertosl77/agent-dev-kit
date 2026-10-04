@@ -68,6 +68,7 @@ from .orchestration import (
     RequestProfile,
     detect_improvement_candidates,
     fingerprint_request,
+    fingerprint_routing,
 )
 from .git_policy import (
     GitPolicyGuard,
@@ -110,6 +111,7 @@ __all__ = [
     "RequestProfile",
     "detect_improvement_candidates",
     "fingerprint_request",
+    "fingerprint_routing",
     "ProviderError",
     "ProviderAuthenticationError",
     "ProviderRecoverableError",
