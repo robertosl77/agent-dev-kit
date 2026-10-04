@@ -154,7 +154,10 @@ class DevAgentKit:
         """Execute ready DAG nodes sequentially while respecting dependencies."""
 
         plan.validate_structure()
+        plan.validate_orchestration_policy(self.agents.keys())
         plan.validate_enabled(self.agents.keys())
+        if plan.trace is not None:
+            plan.trace.status = "executing"
 
         while not plan.is_complete:
             ready = plan.ready_nodes()
@@ -166,6 +169,7 @@ class DevAgentKit:
             for node in ready:
                 self._execute_node_sync(plan, node, session=session)
 
+        self._complete_trace(plan)
         return plan
 
     async def execute_plan(
@@ -177,7 +181,10 @@ class DevAgentKit:
         """Async provider execution with deterministic DAG sequencing."""
 
         plan.validate_structure()
+        plan.validate_orchestration_policy(self.agents.keys())
         plan.validate_enabled(self.agents.keys())
+        if plan.trace is not None:
+            plan.trace.status = "executing"
 
         while not plan.is_complete:
             ready = plan.ready_nodes()
@@ -189,6 +196,7 @@ class DevAgentKit:
             for node in ready:
                 await self._execute_node(plan, node, session=session)
 
+        self._complete_trace(plan)
         return plan
 
     def _execute_node_sync(
