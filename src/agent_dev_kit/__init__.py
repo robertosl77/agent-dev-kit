@@ -47,8 +47,23 @@ from .preferences import (
     save_profile,
 )
 from .runtime import DevAgentKit, DevConversation
+from .orchestration_policy import (
+    AgentDecision,
+    OrchestrationPolicyError,
+    required_agents_for_gates,
+    validate_plan_policy,
+)
+from .orchestration_trace import (
+    IssueProposal,
+    JsonlTraceStore,
+    OrchestrationTrace,
+    TraceCall,
+    fingerprint_request,
+    suggest_trace_review_issues,
+)
 from .tooling import ToolHandle, ToolRegistry
 from .task_plan import (
+    ArtifactRequest,
     DisabledAgentRequiredError,
     TaskNode,
     TaskPlan,
@@ -112,8 +127,19 @@ __all__ = [
     "ProviderRunResult",
     "DevAgentKit",
     "DevConversation",
+    "AgentDecision",
+    "OrchestrationPolicyError",
+    "required_agents_for_gates",
+    "validate_plan_policy",
+    "IssueProposal",
+    "JsonlTraceStore",
+    "OrchestrationTrace",
+    "TraceCall",
+    "fingerprint_request",
+    "suggest_trace_review_issues",
     "ToolHandle",
     "ToolRegistry",
+    "ArtifactRequest",
     "TaskNode",
     "TaskPlan",
     "TaskPlanError",
