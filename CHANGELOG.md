@@ -100,6 +100,14 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - Triage incorpora support/incident intake;
 - Database/Data aplican lifecycle de datos definido por Product/Security.
 
+### Distribución futura
+
+- decisión arquitectónica de estrategia de distribución cerrada futura;
+- servicio remoto + GitHub App recomendado para consumidores corporativos sin entrega de implementación;
+- MCP definido como interfaz natural del servicio;
+- artefacto local compilado reservado como alternativa offline/on-premise;
+- implementación cerrada diferida a v0.2.0+.
+
 ### Calidad
 
 - documentación individual de los 16 agentes;

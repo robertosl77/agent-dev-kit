@@ -149,3 +149,25 @@ release            = v0.1.0
 Nunca consumir `main` como dependencia estable de un proyecto importante.
 
 El consumidor debe fijar un tag o, excepcionalmente, un commit.
+
+
+## Distribución cerrada futura
+
+La distribución inicial de v0.1.0 mediante dependencia Git versionada supone que
+el consumidor autorizado puede obtener el paquete/código necesario para
+instalarlo.
+
+La necesidad distinta de usar Agent Dev Kit sin entregar su implementación fue
+analizada en M-027.
+
+Decisión:
+
+- v0.1.0 mantiene la distribución reproducible mediante tag Git;
+- la vía cerrada principal futura será un servicio remoto de Agent Dev Kit con
+  acceso al repositorio mediante GitHub App y una interfaz cliente basada en
+  MCP;
+- un paquete privado no debe presentarse como mecanismo fuerte de ocultamiento;
+- un artefacto compilado queda como alternativa secundaria para escenarios
+  offline/on-premise.
+
+Ver `docs/distribucion_cerrada.md`.
