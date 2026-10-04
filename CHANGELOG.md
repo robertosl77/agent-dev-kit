@@ -75,6 +75,18 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - Reviewer verifica evidencia y disposición de hallazgos bloqueantes;
 - límites explícitos contra pruebas destructivas no autorizadas.
 
+### Cobertura SDLC
+
+- auditoría del catálogo contra NIST SSDF/DevSecOps, OWASP SAMM, Microsoft SDL, Google SRE, W3C ARRM y NIST Privacy Framework;
+- se mantienen 16 agentes: no se agregan roles por organigrama;
+- Product absorbe business analysis y requisitos no funcionales;
+- UX/UI + Testing cubren accesibilidad;
+- Security cubre privacy engineering y compliance técnico sin asumir asesoramiento legal;
+- Observability incorpora SLIs/SLOs, reliability e incident management;
+- DevOps incorpora platform engineering y release operations;
+- Triage incorpora support/incident intake;
+- Database/Data aplican lifecycle de datos definido por Product/Security.
+
 ### Calidad
 
 - documentación individual de los 16 agentes;
