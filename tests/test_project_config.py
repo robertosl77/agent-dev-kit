@@ -123,3 +123,39 @@ tools:
         "github_issues",
         "github_pull_requests",
     )
+
+
+def test_project_preference_file_is_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+agents:
+  enabled:
+    - backend
+""",
+    )
+    write(
+        tmp_path / ".agent-dev-kit" / "preferences.yaml",
+        """
+disabled_global:
+  - modular_structure
+
+preferences:
+  - id: local_backend_rule
+    rule: "Local backend preference."
+    agents:
+      - backend
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.preference_config.disabled_global == (
+        "modular_structure",
+    )
+    assert (
+        config.preference_config.preferences[0].id
+        == "local_backend_rule"
+    )
