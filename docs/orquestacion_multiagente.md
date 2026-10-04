@@ -62,7 +62,9 @@ El DAG representa:
 
 La versión inicial ejecuta los nodos listos de manera secuencial.
 
-El modelo permite que varios nodos queden listos al mismo tiempo; la paralelización real puede incorporarse posteriormente sin cambiar el contrato del DAG.
+El modelo permite ramas independientes y conserva sus dependencias, de modo que una paralelización futura no requiere cambiar el contrato del DAG.
+
+Cada nodo recibe un resumen compacto del pedido, su objetivo/fase y los outputs de dependencias directas; no se reenvía por defecto todo el pedido conversacional.
 
 ## Agentes deshabilitados
 
@@ -84,21 +86,23 @@ No se permite:
 - que Frontend improvise UX;
 - que un agente comodín absorba la responsabilidad.
 
+## Activación por gates
+
+El DAG no incorpora especialistas por rutina. Triage propone gates, razones, fases y dependencias; una política determinística valida que cada especialista tenga una justificación y que no falte un rol exigido por un riesgo activo.
+
+Un mismo especialista puede participar en más de una fase sólo cuando las fases son distintas y necesarias. Repetir el mismo especialista en la misma fase se considera inválido.
+
 ## Documentación
 
-Para trabajo durable, el plan debe incluir Agent Documentation cuando esté habilitado.
+Documentation sólo entra cuando existe conocimiento durable o un artefacto explícitamente solicitado. No se ejecuta después de cada subtarea.
 
-La documentación de ejecución puede vivir en la Issue asociada:
+- Product es dueño del contenido funcional;
+- Architecture y especialistas técnicos son dueños del contenido técnico;
+- Documentation consolida, formatea y mantiene sincronizados los artefactos.
 
-- pedido;
-- plan;
-- agentes que intervinieron;
-- decisiones;
-- tests;
-- revisión;
-- evidencia final.
+El proyecto consumidor puede configurar plantillas para especificaciones funcionales/técnicas, ADRs y runbooks.
 
-Las decisiones que deben sobrevivir a la Issue también se escriben en artefactos durables del repositorio: código, configuración, tests o `docs/`.
+Ver `docs/orquestador_gates_trazas.md` para gates, fases, contexto mínimo y trazas.
 
 ## QA humano
 
