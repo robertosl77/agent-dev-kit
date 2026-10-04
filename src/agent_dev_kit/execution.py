@@ -1,9 +1,10 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import TypeVar
 
 from agent_dev_kit.preferences import PreferenceProfile
-from agent_dev_kit.provider_config import ProviderConfig, ProviderTargetConfig
+from agent_dev_kit.project_config import ProjectAgentDevKitConfig
+from agent_dev_kit.provider_config import ProviderTargetConfig
 from agent_dev_kit.provider_errors import (
     ProviderFallbackRequired,
     ProviderRecoverableError,
@@ -25,15 +26,15 @@ class ProviderRuntime:
     """Build Agent Dev Kit against primary/fallback providers on demand."""
 
     registry: ProviderRegistry
-    config: ProviderConfig
+    project_config: ProjectAgentDevKitConfig
     tool_registry: ToolRegistry | None = None
     preference_profile: PreferenceProfile | None = None
     _target_index: int = 0
-    _kit: DevAgentKit | None = None
+    _kit: DevAgentKit | None = field(default=None, init=False)
 
     @property
     def current_target(self) -> ProviderTargetConfig:
-        return self.config.targets()[self._target_index]
+        return self.project_config.provider.targets()[self._target_index]
 
     @property
     def kit(self) -> DevAgentKit:
@@ -52,7 +53,12 @@ class ProviderRuntime:
                 return operation(self.kit)
             except ProviderRecoverableError as exc:
                 next_target = self._next_target()
-                if next_target is None or self.config.fallback_policy == "never":
+                config = self.project_config.provider
+
+                if (
+                    next_target is None
+                    or config.fallback_policy == "never"
+                ):
                     raise
 
                 if confirm_switch is None:
@@ -77,7 +83,7 @@ class ProviderRuntime:
         self._kit = None
 
     def _next_target(self) -> ProviderTargetConfig | None:
-        targets = self.config.targets()
+        targets = self.project_config.provider.targets()
         next_index = self._target_index + 1
         if next_index >= len(targets):
             return None
@@ -85,40 +91,15 @@ class ProviderRuntime:
 
     def _build_current(self) -> DevAgentKit:
         target = self.current_target
-        provider = self.registry.create(target.as_provider_config())
-        config = self._config_for_target(target)
+        provider_config = target.as_provider_config()
+        provider = self.registry.create(provider_config)
+        config = replace(
+            self.project_config,
+            provider=provider_config,
+        )
         return DevAgentKit.build(
             config,
             provider,
             tool_registry=self.tool_registry,
             preference_profile=self.preference_profile,
         )
-
-    def _config_for_target(
-        self,
-        target: ProviderTargetConfig,
-    ):
-        from dataclasses import replace
-
-        return replace(
-            self._project_config,
-            provider=target.as_provider_config(),
-        )
-
-    @classmethod
-    def for_project(
-        cls,
-        *,
-        registry: ProviderRegistry,
-        project_config,
-        tool_registry: ToolRegistry | None = None,
-        preference_profile: PreferenceProfile | None = None,
-    ) -> "ProviderRuntime":
-        runtime = cls(
-            registry=registry,
-            config=project_config.provider,
-            tool_registry=tool_registry,
-            preference_profile=preference_profile,
-        )
-        runtime._project_config = project_config
-        return runtime
