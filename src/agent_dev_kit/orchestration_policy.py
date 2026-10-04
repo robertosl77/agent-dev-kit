@@ -83,14 +83,21 @@ def validate_plan_policy(
     gates: Iterable[str],
     forced_agents: Iterable[str],
     decisions: Iterable[AgentDecision],
-    planned_agents: Iterable[str],
+    planned_steps: Iterable[tuple[str, str]],
     required_disabled_agents: Iterable[str],
     enabled_agents: Iterable[str],
 ) -> None:
     """Validate a model-proposed DAG against deterministic participation gates."""
 
     enabled = {normalize_agent_key(item) for item in enabled_agents}
-    planned = tuple(normalize_agent_key(item) for item in planned_agents)
+    planned_steps_normalized = tuple(
+        (
+            normalize_agent_key(agent),
+            normalize_gate(phase or "work"),
+        )
+        for agent, phase in planned_steps
+    )
+    planned = tuple(agent for agent, _ in planned_steps_normalized)
     disabled_required = {
         normalize_agent_key(item) for item in required_disabled_agents
     }
@@ -100,12 +107,14 @@ def validate_plan_policy(
             "Triage cannot appear as an execution node."
         )
 
-    if len(planned) != len(set(planned)):
+    if len(planned_steps_normalized) != len(set(planned_steps_normalized)):
         duplicates = sorted(
-            item for item in set(planned) if planned.count(item) > 1
+            f"{agent}:{phase}"
+            for agent, phase in set(planned_steps_normalized)
+            if planned_steps_normalized.count((agent, phase)) > 1
         )
         raise OrchestrationPolicyError(
-            "One execution node per specialist is required; duplicate agent(s): "
+            "Duplicate specialist phase(s) are not allowed: "
             + ", ".join(duplicates)
         )
 
