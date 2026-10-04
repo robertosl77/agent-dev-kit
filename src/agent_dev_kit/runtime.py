@@ -206,6 +206,7 @@ class DevAgentKit:
                 plan,
                 stage="execution",
                 agent=node.agent,
+                phase=node.phase,
                 duration_ms=duration_ms,
                 context_chars=len(prompt),
                 status="failed",
@@ -234,6 +235,7 @@ class DevAgentKit:
             plan,
             stage="execution",
             agent=node.agent,
+            phase=node.phase,
             duration_ms=duration_ms,
             context_chars=len(prompt),
             native_result=result.native_result,
@@ -322,6 +324,7 @@ class DevAgentKit:
             f"Request summary:\n{plan.request_summary or plan.request}\n\n"
             f"Node id: {node.id}\n"
             f"Your responsibility: {node.agent}\n"
+            f"Execution phase: {node.phase}\n"
             f"Objective:\n{node.objective}\n\n"
             f"Completed dependency outputs:\n{dependencies}\n\n"
             "Return the node result and concise evidence useful to the "
@@ -379,6 +382,7 @@ class DevAgentKit:
                 {
                     "id": item.id,
                     "agent": item.agent,
+                    "phase": item.phase,
                     "depends_on": list(item.depends_on),
                 }
                 for item in plan.nodes
@@ -388,6 +392,7 @@ class DevAgentKit:
             stage="planning",
             agent="triage",
             provider=self.provider.key,
+            phase="planning",
             duration_ms=duration_ms,
             context_chars=context_chars,
             native_result=planning_result.native_result,
@@ -400,6 +405,7 @@ class DevAgentKit:
         stage: str,
         agent: str,
         duration_ms: int,
+        phase: str = "work",
         context_chars: int,
         native_result: Any | None = None,
         status: str = "completed",
@@ -410,6 +416,7 @@ class DevAgentKit:
         plan.trace.record_call(
             stage=stage,
             agent=agent,
+            phase=phase,
             provider=self.provider.key,
             duration_ms=duration_ms,
             context_chars=context_chars,
