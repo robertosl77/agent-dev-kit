@@ -302,20 +302,37 @@ def validate_gate_policy(
 
     for artifact in profile.durable_artifacts:
         agent = ARTIFACT_REQUIRED_AGENT.get(artifact)
-        if agent and agent in enabled:
-            decision = by_agent.get(agent)
+        if agent:
+            if agent not in enabled:
+                if agent not in required_disabled:
+                    raise ValueError(
+                        f"Artifact '{artifact}' requires disabled agent "
+                        f"'{agent}', which must be declared in "
+                        "required_disabled_agents."
+                    )
+            else:
+                decision = by_agent.get(agent)
+                if decision is None or not decision.selected:
+                    raise ValueError(
+                        f"Artifact '{artifact}' requires selected agent "
+                        f"'{agent}'."
+                    )
+
+    if profile.durable_artifacts:
+        if "documentation" not in enabled:
+            if "documentation" not in required_disabled:
+                raise ValueError(
+                    "Durable artifacts require disabled agent "
+                    "'documentation', which must be declared in "
+                    "required_disabled_agents."
+                )
+        else:
+            decision = by_agent.get("documentation")
             if decision is None or not decision.selected:
                 raise ValueError(
-                    f"Artifact '{artifact}' requires selected agent '{agent}'."
+                    "Durable artifacts require Agent Documentation for "
+                    "consolidation/synchronization."
                 )
-
-    if profile.durable_artifacts and "documentation" in enabled:
-        decision = by_agent.get("documentation")
-        if decision is None or not decision.selected:
-            raise ValueError(
-                "Durable artifacts require Agent Documentation for "
-                "consolidation/synchronization."
-            )
 
 
 def detect_improvement_candidates(
