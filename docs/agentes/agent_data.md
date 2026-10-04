@@ -51,3 +51,12 @@ Pipeline o dataset reproducible, validado y con trazabilidad desde la fuente has
 ## Prioridad
 
 Puede existir como esqueleto aunque un proyecto todavía no necesite analítica avanzada.
+
+
+## Privacidad en flujos de datos
+
+Los pipelines deben aplicar requisitos definidos de minimización, retención,
+borrado o de-identificación cuando correspondan y mantener trazabilidad de esas
+transformaciones.
+
+Agent Data no inventa política regulatoria; coordina con Product/Security.
