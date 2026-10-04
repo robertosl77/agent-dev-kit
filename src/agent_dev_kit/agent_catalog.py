@@ -120,9 +120,15 @@ def create_enabled_agents(
         handles[key] = provider.create_agent(definition)
 
     if "triage" in definitions:
+        specialist_handles = tuple(handles.values())
         handles["triage"] = provider.create_agent(
             definitions["triage"],
-            handoffs=tuple(handles.values()),
+            handoffs=specialist_handles,
         )
+
+        # Specialists return to Triage only when the topic leaves their scope.
+        triage = handles["triage"]
+        for specialist in specialist_handles:
+            provider.set_handoffs(specialist, (triage,))
 
     return handles
