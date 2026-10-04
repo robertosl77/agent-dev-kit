@@ -82,6 +82,7 @@ def test_mcp_server_exposes_client_neutral_tools(tmp_path):
                 "agent_dev_kit_task",
                 "agent_dev_kit_task_fallback",
                 "agent_dev_kit_task_status",
+                "agent_dev_kit_orchestration_proposals",
             }
 
             result = await client.call_tool(
@@ -90,6 +91,14 @@ def test_mcp_server_exposes_client_neutral_tools(tmp_path):
             )
             assert result.structured_content["project"] == "MCPExample"
             assert result.is_error is False
+
+            proposals = await client.call_tool(
+                "agent_dev_kit_orchestration_proposals",
+                {"min_occurrences": 3},
+            )
+            assert proposals.structured_content["status"] == "ok"
+            assert proposals.structured_content["auto_modify"] is False
+            assert proposals.structured_content["auto_create_issue"] is False
 
     asyncio.run(exercise())
 
