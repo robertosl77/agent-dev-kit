@@ -40,6 +40,7 @@ class TaskNode:
     id: str
     agent: str
     objective: str
+    phase: str = "work"
     depends_on: tuple[str, ...] = ()
     status: str = "pending"
     output: str | None = None
@@ -96,6 +97,9 @@ class TaskPlan:
                         str(item.get("agent") or "")
                     ),
                     objective=str(item.get("objective") or "").strip(),
+                    phase=normalize_gate(
+                        str(item.get("phase") or "work")
+                    ),
                     depends_on=tuple(
                         str(value).strip()
                         for value in (item.get("depends_on") or [])
@@ -219,6 +223,10 @@ class TaskPlan:
                 raise TaskPlanError(
                     f"Task node '{node.id}' requires an objective."
                 )
+            if not node.phase:
+                raise TaskPlanError(
+                    f"Task node '{node.id}' requires a phase."
+                )
             for dependency in node.depends_on:
                 if dependency not in by_id:
                     raise TaskPlanError(
@@ -243,7 +251,9 @@ class TaskPlan:
                 gates=self.gates,
                 forced_agents=self.forced_agents,
                 decisions=self.decisions,
-                planned_agents=(node.agent for node in self.nodes),
+                planned_steps=(
+                    (node.agent, node.phase) for node in self.nodes
+                ),
                 required_disabled_agents=self.required_disabled_agents,
                 enabled_agents=enabled_agents,
             )
@@ -364,7 +374,7 @@ Participation gates:
 
 Rules:
 - Activate ONLY gates justified by this request.
-- Each active gate maps to one specialist; each specialist gets at most one node.
+- Each active gate maps to a specialist. Prefer one node per specialist, but multiple nodes are allowed when the same specialist must act in genuinely different phases.
 - Do not add Product, Architecture, Testing, Security, Reviewer, Documentation, or any other specialist by habit.
 - Testing is selected only when repeatable technical validation adds value.
 - Security is selected only for a real security/privacy/compliance risk surface.
@@ -372,6 +382,7 @@ Rules:
 - Reviewer is selected only when independent technical review is justified by risk/scope.
 - forced_agents is only for an explicit user request to involve a named specialist outside the normal gate decision.
 - Every selected specialist requires a concise observable reason.
+- Every node requires a concise phase such as analysis, design, implementation, verification, documentation, or operations. The same specialist cannot repeat the same phase.
 - You may record plausible specialists considered but omitted with selected=false and a concise reason; do not enumerate irrelevant roles.
 - Never substitute a disabled specialist. If required, add it to required_disabled_agents and omit its node.
 - Each node objective must be self-contained because execution receives request_summary, not the full conversation.
@@ -403,6 +414,7 @@ Return exactly this shape:
       "id": "backend",
       "agent": "backend",
       "objective": "Implement the requested server behavior.",
+      "phase": "implementation",
       "depends_on": []
     }}
   ]
