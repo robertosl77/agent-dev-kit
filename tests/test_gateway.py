@@ -51,23 +51,52 @@ class GatewayProvider(AgentProvider):
             return ProviderRunResult(
                 output="""{
                   "request": "Fix report",
+                  "profile": {
+                    "summary": "Fix report service behavior.",
+                    "classification": "backend_bug",
+                    "risk_flags": ["backend_change", "behavior_regression"],
+                    "durable_artifacts": ["project_docs"]
+                  },
+                  "agent_decisions": [
+                    {
+                      "agent": "backend",
+                      "selected": true,
+                      "gate": "backend_change",
+                      "reason": "Server behavior changes."
+                    },
+                    {
+                      "agent": "testing",
+                      "selected": true,
+                      "gate": "behavior_regression",
+                      "reason": "Regression validation is required."
+                    },
+                    {
+                      "agent": "documentation",
+                      "selected": true,
+                      "gate": "durable_artifact",
+                      "reason": "Project documentation must be synchronized."
+                    }
+                  ],
                   "required_disabled_agents": [],
                   "nodes": [
                     {
                       "id": "backend",
                       "agent": "backend",
+                      "phase": "implementation",
                       "objective": "Fix the service.",
                       "depends_on": []
                     },
                     {
                       "id": "testing",
                       "agent": "testing",
+                      "phase": "validation",
                       "objective": "Validate the service.",
                       "depends_on": ["backend"]
                     },
                     {
                       "id": "documentation",
                       "agent": "documentation",
+                      "phase": "documentation",
                       "objective": "Document the evidence.",
                       "depends_on": ["testing"]
                     }
@@ -234,6 +263,8 @@ def test_task_resumes_same_dag_after_approved_fallback(tmp_path):
 
     assert resumed["status"] == "completed"
     assert resumed["provider"] == "backup"
+    assert resumed["plan"]["orchestration_trace"]["model_calls"] >= 4
+    assert resumed["plan"]["orchestration_trace"]["revisits"] == 1
     assert all(
         node["status"] == "completed"
         for node in resumed["plan"]["nodes"]

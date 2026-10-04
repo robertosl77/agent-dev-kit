@@ -36,6 +36,16 @@ git_workflow:
     protected_branches: deny
     exception: explicit_human_authorization
 
+orchestration:
+  trace:
+    enabled: true
+    path: .agent-dev-kit/runtime/orchestration-traces.jsonl
+    persist_full_request: false
+  improvement_candidate_threshold: 3
+  document_templates:
+    functional_spec: .agent-dev-kit/templates/functional_spec.md
+    technical_spec: .agent-dev-kit/templates/technical_spec.md
+
 agents:
   enabled:
     - triage

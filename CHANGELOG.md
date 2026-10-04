@@ -16,6 +16,16 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
 ### Coordinación
 
+- orquestación por riesgo con subgrafo mínimo suficiente;
+- decisión explícita de inclusión/omisión para cada especialista habilitado;
+- gates determinísticos para riesgos y artefactos durables;
+- fases explícitas por nodo (discovery/design/implementation/validation/documentation/release);
+- contexto reducido por nodo en lugar de reenviar el pedido completo;
+- trazas estructuradas con fingerprint, llamadas, revisitas y duración;
+- telemetría runtime local no versionada;
+- candidatos de mejora derivados de evidencia, siempre con revisión humana;
+- plantillas configurables para especificaciones funcionales/técnicas y otros artefactos;
+
 - Triage como punto de entrada;
 - grafo permanente de capacidades/handoffs;
 - DAG específico por tarea;
@@ -45,6 +55,9 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
 ### MCP
 
+- decisión de arquitectura para Copilot como cliente vía MCP;
+- Custom Agent definido como adaptador opcional sobre MCP, sin duplicar el orquestador;
+- GitHub App separada como mecanismo de acceso remoto al repositorio para M-027;
 - gateway neutral de cliente;
 - servidor MCP v2;
 - transporte stdio;
@@ -86,6 +99,14 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - DevOps incorpora platform engineering y release operations;
 - Triage incorpora support/incident intake;
 - Database/Data aplican lifecycle de datos definido por Product/Security.
+
+### Distribución futura
+
+- decisión arquitectónica de estrategia de distribución cerrada futura;
+- servicio remoto + GitHub App recomendado para consumidores corporativos sin entrega de implementación;
+- MCP definido como interfaz natural del servicio;
+- artefacto local compilado reservado como alternativa offline/on-premise;
+- implementación cerrada diferida a v0.2.0+.
 
 ### Calidad
 
