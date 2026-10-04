@@ -189,3 +189,40 @@ agents:
     assert len(config.provider.fallbacks) == 1
     assert config.provider.fallbacks[0].provider == "backup"
     assert config.provider.fallbacks[0].default_model == "model-b"
+
+
+def test_git_workflow_is_loaded_and_injected(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+git_workflow:
+  branches:
+    production: main
+    integration: development
+  protected:
+    - main
+    - development
+  task_branch:
+    base: development
+    naming: "{kind}/{issue}-{slug}"
+  pull_requests:
+    task_target: development
+    release_source: development
+    release_target: main
+    require_issue_reference: true
+
+agents:
+  enabled:
+    - pmo
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.git_workflow.production_branch == "main"
+    assert config.git_workflow.integration_branch == "development"
+    assert config.git_workflow.task_branch_base == "development"
+    assert config.git_workflow.task_pr_target == "development"
