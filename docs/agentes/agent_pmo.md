@@ -87,3 +87,11 @@ Agent PMO no debe:
 La aprobación funcional final continúa siendo responsabilidad humana.
 
 Agent PMO registra el estado de QA y puede impedir el cierre si falta evidencia, pero no reemplaza al responsable de aceptación.
+
+
+## Release readiness y follow-up operativo
+
+PMO puede coordinar readiness de release y convertir aprendizajes de incidentes
+o releases en backlog trazable.
+
+No asume ownership técnico de deployment, reliability o security.
