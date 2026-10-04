@@ -14,6 +14,7 @@ Todavía no tiene una versión estable publicada. El versionado inicial se reali
 - El proyecto consumidor define stack, reglas locales, agentes habilitados y proveedor.
 - Los agentes no habilitados no se instancian ni reciben handoffs.
 - Triage enruta; no debe intervenir en cada turno si ya existe un especialista activo.
+- El orquestador usa el subgrafo mínimo suficiente: cada especialista requiere un gate, una razón o una solicitud humana explícita.
 - El framework no queda acoplado a OpenAI: el proveedor concreto vive detrás de un adaptador.
 - Las decisiones duraderas deben quedar en código, configuración, tests o documentación del proyecto.
 
@@ -142,6 +143,7 @@ agents:
 - [Contexto del proyecto](docs/contexto_proyecto.md)
 - [Herramientas por agente](docs/herramientas_agentes.md)
 - [Coordinación multi-especialista](docs/orquestacion_multiagente.md)
+- [Orquestador: gates, fases y trazas](docs/orquestador_gates_trazas.md)
 - [Preferencias persistentes del usuario](docs/preferencias_usuario.md)
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Smoke test pre-versionado](docs/smoke_test.md)
