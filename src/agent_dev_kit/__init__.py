@@ -56,6 +56,8 @@ from .task_plan import (
 )
 from .provider_registry import ProviderRegistry, build_default_registry
 from .execution import ProviderRuntime
+from .gateway import AgentDevKitGateway
+from .mcp_server import build_mcp_server, run_mcp_server
 from .provider_errors import (
     ProviderAuthenticationError,
     ProviderError,
@@ -75,6 +77,9 @@ __all__ = [
     "ProviderConfig",
     "ProviderTargetConfig",
     "ProviderRuntime",
+    "AgentDevKitGateway",
+    "build_mcp_server",
+    "run_mcp_server",
     "ProviderError",
     "ProviderAuthenticationError",
     "ProviderRecoverableError",
