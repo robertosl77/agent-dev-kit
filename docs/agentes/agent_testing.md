@@ -90,3 +90,16 @@ Agent Testing no debe:
 Framework de testing del stack, coverage, mocks/fixtures, generadores de datos,
 código fuente, CI, API/browser clients y herramientas de ejecución configuradas
 por el proyecto.
+
+
+## Accesibilidad
+
+Cuando Product/UX/UI definieron requisitos de accesibilidad, Testing puede:
+
+- integrar checks automáticos cuando existan herramientas determinísticas;
+- validar criterios reproducibles;
+- preparar un test plan para checks manuales;
+- dejar explícito qué no puede demostrar la automatización.
+
+La evaluación manual con tecnologías asistivas o la aceptación de experiencia
+permanece dentro del QA humano.
