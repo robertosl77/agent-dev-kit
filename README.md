@@ -4,9 +4,9 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 ## Estado
 
-El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, abstracción de proveedor y capa neutral de herramientas.
+El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
-Todavía no tiene una versión estable publicada. El versionado inicial se realizará cuando la estructura base quede validada.
+La rama `development` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `development → main`, CI final y creación manual del tag.
 
 ## Principios
 
@@ -42,30 +42,21 @@ Agent Data
 
 ```text
 agent-dev-kit/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── docs/
 │   ├── agentes/
-│   │   ├── agent_product.md
-│   │   ├── agent_pmo.md
-│   │   ├── agent_architecture.md
-│   │   ├── agent_ux_ui.md
-│   │   ├── agent_backend.md
-│   │   ├── agent_frontend.md
-│   │   ├── agent_database.md
-│   │   ├── agent_security.md
-│   │   ├── agent_testing.md
-│   │   ├── agent_reviewer.md
-│   │   ├── agent_documentation.md
-│   │   ├── agent_triage.md
-│   │   ├── agent_devops.md
-│   │   ├── agent_performance.md
-│   │   ├── agent_observability.md
-│   │   └── agent_data.md
-│   ├── activacion_agentes.md
-│   ├── catalogo_agentes.md
-│   ├── configuracion_nativa_y_contextual.md
-│   ├── contexto_proyecto.md
-│   ├── herramientas_agentes.md
-│   └── proveedores.md
+│   │   └── agent_*.md
+│   ├── auditoria_roles_sdlc.md
+│   ├── distribucion_cerrada.md
+│   ├── distribucion_versionado.md
+│   ├── git_workflow.md
+│   ├── integracion_copilot.md
+│   ├── interfaz_mcp.md
+│   ├── orquestacion_multiagente.md
+│   ├── orquestacion_por_riesgo.md
+│   └── ...
 ├── examples/
 │   └── libreria_ingles/
 │       └── .agent-dev-kit/
@@ -78,12 +69,22 @@ agent-dev-kit/
 │       │   └── provider_openai.py
 │       ├── agent_catalog.py
 │       ├── agent_definition.py
+│       ├── cli.py
+│       ├── execution.py
+│       ├── gateway.py
+│       ├── git_policy.py
+│       ├── mcp_server.py
+│       ├── orchestration.py
+│       ├── preferences.py
 │       ├── project_config.py
 │       ├── provider_config.py
 │       ├── provider_registry.py
+│       ├── routing.py
 │       ├── runtime.py
+│       ├── task_plan.py
 │       └── tooling.py
 ├── tests/
+├── CHANGELOG.md
 └── pyproject.toml
 ```
 
@@ -123,6 +124,16 @@ stack:
 provider:
   name: openai
 
+git_workflow:
+  branches:
+    production: main
+    integration: development
+
+orchestration:
+  trace:
+    enabled: true
+    persist_full_request: false
+
 agents:
   enabled:
     - pmo
@@ -159,6 +170,8 @@ agents:
 La primera implementación concreta es OpenAI Agents SDK, aislada detrás de `OpenAIProvider`.
 
 Otros proveedores pueden agregarse sin reescribir los agentes del catálogo.
+
+La API Python es la interfaz programática principal del framework. El CLI y las integraciones de host pueden evolucionar; durante la serie 0.x cualquier cambio incompatible debe quedar documentado según SemVer.
 
 ## Desarrollo
 
