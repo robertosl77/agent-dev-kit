@@ -52,31 +52,42 @@ class ProviderRuntime:
             try:
                 return operation(self.kit)
             except ProviderRecoverableError as exc:
-                next_target = self._next_target()
-                config = self.project_config.provider
-
-                if (
-                    next_target is None
-                    or config.fallback_policy == "never"
-                ):
-                    raise
-
-                if confirm_switch is None:
-                    raise ProviderFallbackRequired(
-                        current_provider=self.current_target.provider,
-                        next_provider=next_target.provider,
-                        cause=exc,
-                    ) from exc
-
-                if not confirm_switch(
-                    self.current_target,
-                    next_target,
+                self.switch_after_error(
                     exc,
-                ):
-                    raise
+                    confirm_switch=confirm_switch,
+                )
 
-                self._target_index += 1
-                self._kit = None
+    def switch_after_error(
+        self,
+        error: ProviderRecoverableError,
+        *,
+        confirm_switch: FallbackConfirmation | None = None,
+    ) -> DevAgentKit:
+        """Move to the next provider only after policy/approval checks."""
+
+        next_target = self._next_target()
+        config = self.project_config.provider
+
+        if next_target is None or config.fallback_policy == "never":
+            raise error
+
+        if confirm_switch is None:
+            raise ProviderFallbackRequired(
+                current_provider=self.current_target.provider,
+                next_provider=next_target.provider,
+                cause=error,
+            ) from error
+
+        if not confirm_switch(
+            self.current_target,
+            next_target,
+            error,
+        ):
+            raise error
+
+        self._target_index += 1
+        self._kit = None
+        return self.kit
 
     def reset_primary(self) -> None:
         self._target_index = 0
