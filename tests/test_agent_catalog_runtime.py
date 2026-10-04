@@ -129,3 +129,13 @@ def test_enabled_agent_receives_consuming_project_stack():
     assert "Python" in instructions
     assert "FastAPI" in instructions
     assert "SQLite" in instructions
+
+
+def test_global_user_preferences_are_injected_into_matching_agent():
+    config = make_config(("backend",))
+
+    definitions = build_enabled_definitions(config)
+
+    instructions = definitions["backend"].instructions
+    assert "modular_structure" in instructions
+    assert "single_responsibility_owner" in instructions
