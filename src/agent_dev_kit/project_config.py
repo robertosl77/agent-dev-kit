@@ -10,6 +10,10 @@ from agent_dev_kit.git_policy import (
     GitWorkflowConfig,
     git_workflow_from_mapping,
 )
+from agent_dev_kit.orchestration import (
+    OrchestrationConfig,
+    orchestration_config_from_mapping,
+)
 from agent_dev_kit.preferences import (
     PreferenceRule,
     ProjectPreferenceConfig,
@@ -39,6 +43,10 @@ class ProjectAgentDevKitConfig:
     enabled_agents: tuple[str, ...]
     agents: Mapping[str, ContextualAgentConfig]
     git_workflow: GitWorkflowConfig = field(default_factory=GitWorkflowConfig)
+    orchestration: OrchestrationConfig = field(
+        default_factory=OrchestrationConfig
+    )
+    project_root: Path | None = None
     preference_config: ProjectPreferenceConfig = field(
         default_factory=ProjectPreferenceConfig
     )
@@ -164,6 +172,10 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
         git_workflow=git_workflow_from_mapping(
             project_data.get("git_workflow")
         ),
+        orchestration=orchestration_config_from_mapping(
+            project_data.get("orchestration")
+        ),
+        project_root=root,
         preference_config=load_project_preference_config(
             config_dir / "preferences.yaml"
         ),
@@ -224,6 +236,33 @@ def apply_project_context(
             "A protected-branch exception requires explicit human authorization."
         ),
     ]
+
+    if (
+        config.orchestration.document_templates
+        and agent_key in {
+            "product",
+            "architecture",
+            "documentation",
+            "devops",
+            "observability",
+        }
+    ):
+        templates_yaml = yaml.safe_dump(
+            dict(config.orchestration.document_templates),
+            allow_unicode=True,
+            sort_keys=True,
+            default_flow_style=False,
+        ).strip()
+        context_parts.extend(
+            [
+                "Configured document templates:",
+                templates_yaml,
+                (
+                    "Use these templates only when the orchestration gate or "
+                    "the user explicitly requires the corresponding artifact."
+                ),
+            ]
+        )
 
     if rules:
         context_parts.extend(
