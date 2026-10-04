@@ -77,3 +77,21 @@ DevOps integra en CI/CD las herramientas aprobadas por el proyecto, por ejemplo:
 Código, configuración, dependencias, CI, análisis estático, análisis de permisos,
 artefactos de threat modeling y herramientas defensivas habilitadas por el
 proyecto consumidor.
+
+
+## Privacy y compliance técnico
+
+Cuando Product o una política externa identifica una obligación aplicable,
+Security traduce esa obligación en controles técnicos y evidencia.
+
+Puede cubrir:
+
+- privacy engineering;
+- minimización de datos;
+- acceso/auditoría;
+- retención/borrado;
+- controles de protección;
+- evidencia técnica de cumplimiento.
+
+Security no inventa regulación ni brinda asesoramiento legal. Database y Data
+implementan los mecanismos de lifecycle que correspondan.
