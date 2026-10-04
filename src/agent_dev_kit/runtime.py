@@ -2,8 +2,14 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
-from agent_dev_kit.agent_catalog import AVAILABLE_AGENT_KEYS, create_enabled_agents
+from agent_dev_kit.agent_catalog import (
+    AVAILABLE_AGENT_KEYS,
+    build_enabled_definitions,
+    create_enabled_agents,
+)
+from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.project_config import ProjectAgentDevKitConfig
+from agent_dev_kit.planner_contract import StructuredTaskPlan
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 from agent_dev_kit.tooling import ToolRegistry
 from agent_dev_kit.preferences import PreferenceProfile
@@ -28,6 +34,7 @@ class DevAgentKit:
     config: ProjectAgentDevKitConfig
     provider: AgentProvider
     agents: dict[str, AgentHandle]
+    planner_agent: AgentHandle | None = None
     trace_store: OrchestrationTraceStore | None = None
 
     @classmethod
@@ -46,15 +53,36 @@ class DevAgentKit:
             )
             trace_store = OrchestrationTraceStore(trace_path)
 
+        agents = create_enabled_agents(
+            provider,
+            config,
+            tool_registry=tool_registry,
+            preference_profile=preference_profile,
+        )
+        planner_agent = None
+        if "triage" in agents:
+            triage_definition = build_enabled_definitions(
+                config,
+                preference_profile=preference_profile,
+            )["triage"]
+            planner_definition = AgentDefinition(
+                name="Agent Triage Planner",
+                instructions=triage_definition.instructions,
+                model=triage_definition.model,
+            )
+            if provider.supports_structured_output():
+                planner_agent = provider.create_structured_agent(
+                    planner_definition,
+                    output_type=StructuredTaskPlan,
+                )
+            else:
+                planner_agent = provider.create_agent(planner_definition)
+
         return cls(
             config=config,
             provider=provider,
-            agents=create_enabled_agents(
-                provider,
-                config,
-                tool_registry=tool_registry,
-                preference_profile=preference_profile,
-            ),
+            agents=agents,
+            planner_agent=planner_agent,
             trace_store=trace_store,
         )
 
@@ -76,13 +104,9 @@ class DevAgentKit:
         *,
         session: Any | None = None,
     ) -> TaskPlan:
-        """Ask Triage for a structured multi-specialist DAG."""
+        """Create a validated plan with an isolated Triage planner."""
 
-        if "triage" not in self.agents:
-            raise ValueError(
-                "Triage must be enabled to create a multi-agent task plan."
-            )
-
+        planner = self._require_planner()
         prompt = build_planning_prompt(
             request,
             enabled_agents=self.agents.keys(),
@@ -91,15 +115,37 @@ class DevAgentKit:
         )
         started = perf_counter()
         result = self.provider.run_sync(
-            self.agents["triage"],
+            planner,
             prompt,
             session=session,
         )
+        planning_calls = 1
+        self._validate_planner_result(planner, result)
+
+        try:
+            plan = self._parse_planner_output(result.output)
+        except TaskPlanError as first_error:
+            repair_prompt = self._planning_repair_prompt(
+                request=request,
+                invalid_output=result.output,
+                error=first_error,
+            )
+            repaired = self.provider.run_sync(
+                planner,
+                repair_prompt,
+                session=session,
+            )
+            planning_calls += 1
+            self._validate_planner_result(planner, repaired)
+            try:
+                plan = self._parse_planner_output(repaired.output)
+            except TaskPlanError as second_error:
+                raise TaskPlanError(
+                    "Planner output remained invalid after one repair "
+                    f"attempt: {second_error}"
+                ) from second_error
+
         planning_ms = (perf_counter() - started) * 1000
-        plan = TaskPlan.from_json(
-            result.output,
-            require_agent_decisions=True,
-        )
         plan.request = request
         plan.validate_orchestration_policy(
             self.agents.keys(),
@@ -110,6 +156,7 @@ class DevAgentKit:
             plan,
             request=request,
             planning_ms=planning_ms,
+            planning_calls=planning_calls,
         )
         return plan
 
@@ -119,13 +166,9 @@ class DevAgentKit:
         *,
         session: Any | None = None,
     ) -> TaskPlan:
-        """Async variant of plan_task_sync."""
+        """Async variant of isolated structured planning."""
 
-        if "triage" not in self.agents:
-            raise ValueError(
-                "Triage must be enabled to create a multi-agent task plan."
-            )
-
+        planner = self._require_planner()
         prompt = build_planning_prompt(
             request,
             enabled_agents=self.agents.keys(),
@@ -134,15 +177,37 @@ class DevAgentKit:
         )
         started = perf_counter()
         result = await self.provider.run(
-            self.agents["triage"],
+            planner,
             prompt,
             session=session,
         )
+        planning_calls = 1
+        self._validate_planner_result(planner, result)
+
+        try:
+            plan = self._parse_planner_output(result.output)
+        except TaskPlanError as first_error:
+            repair_prompt = self._planning_repair_prompt(
+                request=request,
+                invalid_output=result.output,
+                error=first_error,
+            )
+            repaired = await self.provider.run(
+                planner,
+                repair_prompt,
+                session=session,
+            )
+            planning_calls += 1
+            self._validate_planner_result(planner, repaired)
+            try:
+                plan = self._parse_planner_output(repaired.output)
+            except TaskPlanError as second_error:
+                raise TaskPlanError(
+                    "Planner output remained invalid after one repair "
+                    f"attempt: {second_error}"
+                ) from second_error
+
         planning_ms = (perf_counter() - started) * 1000
-        plan = TaskPlan.from_json(
-            result.output,
-            require_agent_decisions=True,
-        )
         plan.request = request
         plan.validate_orchestration_policy(
             self.agents.keys(),
@@ -153,8 +218,63 @@ class DevAgentKit:
             plan,
             request=request,
             planning_ms=planning_ms,
+            planning_calls=planning_calls,
         )
         return plan
+
+    def _require_planner(self) -> AgentHandle:
+        if "triage" not in self.agents or self.planner_agent is None:
+            raise ValueError(
+                "Triage must be enabled to create a multi-agent task plan."
+            )
+        return self.planner_agent
+
+    @staticmethod
+    def _validate_planner_result(
+        planner: AgentHandle,
+        result: ProviderRunResult,
+    ) -> None:
+        if (
+            result.active_agent.native is not planner.native
+            and result.active_agent.name != planner.name
+        ):
+            raise TaskPlanError(
+                "Planner handed off unexpectedly during planning. "
+                "Planning must execute without handoffs."
+            )
+
+    @staticmethod
+    def _parse_planner_output(output: Any) -> TaskPlan:
+        if isinstance(output, str):
+            return TaskPlan.from_json(
+                output,
+                require_agent_decisions=True,
+                strict_schema=True,
+            )
+        return TaskPlan.from_payload(
+            output,
+            require_agent_decisions=True,
+            strict_schema=True,
+        )
+
+    @staticmethod
+    def _planning_repair_prompt(
+        *,
+        request: str,
+        invalid_output: Any,
+        error: TaskPlanError,
+    ) -> str:
+        rendered = str(invalid_output)
+        if len(rendered) > 8000:
+            rendered = rendered[:8000] + "...[truncated]"
+        return (
+            "Planning repair operation. Do not hand off. The previous planner "
+            "output violated the strict TaskPlan contract. Return the complete "
+            "corrected TaskPlan only; do not explain the repair.\n\n"
+            f"Original request:\n{request}\n\n"
+            f"Validation error:\n{error}\n\n"
+            f"Previous output:\n{rendered}"
+        )
 
     def execute_plan_sync(
         self,
@@ -367,6 +487,7 @@ class DevAgentKit:
         *,
         request: str,
         planning_ms: float,
+        planning_calls: int = 1,
     ) -> OrchestrationTrace:
         profile = plan.profile
         if profile is None:
@@ -399,7 +520,7 @@ class DevAgentKit:
                 if self.config.orchestration.persist_full_request
                 else None
             ),
-            model_calls=1,
+            model_calls=planning_calls,
             node_durations_ms={"__planning__": planning_ms},
             status="planned",
         )
