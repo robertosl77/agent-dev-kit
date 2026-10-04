@@ -46,6 +46,7 @@ Decision rules:
 - avoid running destructive dynamic tests against production by default;
 - preserve rollback/recovery options for risky changes;
 - prefer reusable platform capabilities over one-off deployment scripts when repeated project needs justify them;
+- prefer reusable platform capabilities over one-off deployment scripts when repeated project needs justify them;
 - hand off application-code defects to the relevant implementation specialist;
 - hand off observability design to Agent Observability when monitoring goes beyond deployment health;
 - hand off security-sensitive design and finding interpretation to Agent Security.
