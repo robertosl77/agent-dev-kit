@@ -71,9 +71,10 @@ def test_only_enabled_agents_are_instantiated_and_triage_sees_only_them():
     assert provider.created == [
         ("Agent PMO", ()),
         ("Agent Testing", ()),
-        ("Agent Triage", ("Agent PMO", "Agent Testing")),
+        ("Agent Triage", ()),
         ("handoffs:Agent PMO", ("Agent Triage",)),
         ("handoffs:Agent Testing", ("Agent Triage",)),
+        ("handoffs:Agent Triage", ("Agent PMO", "Agent Testing")),
     ]
 
 
