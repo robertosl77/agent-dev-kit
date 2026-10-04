@@ -6,6 +6,12 @@ import yaml
 
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.provider_config import ProviderConfig
+from agent_dev_kit.preferences import (
+    PreferenceRule,
+    ProjectPreferenceConfig,
+    apply_preference_rules,
+    load_project_preference_config,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +34,9 @@ class ProjectAgentDevKitConfig:
     provider: ProviderConfig
     enabled_agents: tuple[str, ...]
     agents: Mapping[str, ContextualAgentConfig]
+    preference_config: ProjectPreferenceConfig = field(
+        default_factory=ProjectPreferenceConfig
+    )
     raw: Mapping[str, Any] = field(default_factory=dict)
 
     def agent(self, key: str) -> ContextualAgentConfig | None:
@@ -103,6 +112,9 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
         ),
         enabled_agents=enabled_agents,
         agents=contextual_agents,
+        preference_config=load_project_preference_config(
+            config_dir / "preferences.yaml"
+        ),
         raw=project_data,
     )
 
@@ -111,6 +123,8 @@ def apply_project_context(
     definition: AgentDefinition,
     config: ProjectAgentDevKitConfig,
     agent_key: str,
+    *,
+    preference_rules: tuple[PreferenceRule, ...] = (),
 ) -> AgentDefinition:
     """Resolve native instructions with safe project-local context.
 
@@ -122,6 +136,7 @@ def apply_project_context(
 
     contextual = config.agent(agent_key)
     resolved = apply_contextual_config(definition, contextual)
+    resolved = apply_preference_rules(resolved, preference_rules)
 
     stack_yaml = yaml.safe_dump(
         dict(config.stack),

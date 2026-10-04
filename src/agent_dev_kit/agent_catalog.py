@@ -27,6 +27,11 @@ from agent_dev_kit.project_config import (
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider
 from agent_dev_kit.tooling import ToolRegistry
 from agent_dev_kit.routing import build_enabled_capability_graph
+from agent_dev_kit.preferences import (
+    PreferenceProfile,
+    load_default_profile,
+    resolve_preferences,
+)
 
 
 AgentDefinitionBuilder: TypeAlias = Callable[..., AgentDefinition]
@@ -84,20 +89,30 @@ def is_agent_enabled(config: ProjectAgentDevKitConfig, key: str) -> bool:
 
 def build_enabled_definitions(
     config: ProjectAgentDevKitConfig,
+    *,
+    preference_profile: PreferenceProfile | None = None,
 ) -> dict[str, AgentDefinition]:
     """Build only definitions explicitly enabled by the consuming project."""
 
     validate_enabled_agents(config)
+    preference_profile = preference_profile or load_default_profile()
 
     resolved: dict[str, AgentDefinition] = {}
     for raw_key in config.enabled_agents:
         key = normalize_agent_key(raw_key)
         builder = AGENT_BUILDERS[key]
         definition = builder(model=config.provider.default_model)
+        preferences = resolve_preferences(
+            preference_profile,
+            project_name=config.name,
+            agent_key=key,
+            project_config=config.preference_config,
+        )
         resolved[key] = apply_project_context(
             definition,
             config,
             key,
+            preference_rules=preferences,
         )
 
     return resolved
@@ -108,6 +123,7 @@ def create_enabled_agents(
     config: ProjectAgentDevKitConfig,
     *,
     tool_registry: ToolRegistry | None = None,
+    preference_profile: PreferenceProfile | None = None,
 ) -> dict[str, AgentHandle]:
     """Instantiate only enabled agents.
 
@@ -116,7 +132,10 @@ def create_enabled_agents(
     to Triage.
     """
 
-    definitions = build_enabled_definitions(config)
+    definitions = build_enabled_definitions(
+        config,
+        preference_profile=preference_profile,
+    )
     handles: dict[str, AgentHandle] = {}
 
     def tools_for(key: str):

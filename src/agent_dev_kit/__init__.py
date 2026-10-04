@@ -34,6 +34,18 @@ from .agents import (
     create_ux_ui_agent,
 )
 from .provider_config import ProviderConfig
+from .preferences import (
+    PreferenceCandidate,
+    PreferenceProfile,
+    PreferenceRule,
+    ProjectPreferenceConfig,
+    confirm_preference_candidate,
+    load_default_profile,
+    load_profile,
+    record_preference_observation,
+    resolve_preferences,
+    save_profile,
+)
 from .runtime import DevAgentKit, DevConversation
 from .tooling import ToolHandle, ToolRegistry
 from .task_plan import (
@@ -50,6 +62,16 @@ __all__ = [
     "AgentHandle",
     "AgentProvider",
     "ProviderConfig",
+    "PreferenceCandidate",
+    "PreferenceProfile",
+    "PreferenceRule",
+    "ProjectPreferenceConfig",
+    "confirm_preference_candidate",
+    "load_default_profile",
+    "load_profile",
+    "record_preference_observation",
+    "resolve_preferences",
+    "save_profile",
     "ProviderRegistry",
     "ProviderRunResult",
     "DevAgentKit",
