@@ -139,3 +139,21 @@ def test_global_user_preferences_are_injected_into_matching_agent():
     instructions = definitions["backend"].instructions
     assert "modular_structure" in instructions
     assert "single_responsibility_owner" in instructions
+
+
+def test_git_workflow_policy_is_injected_into_agent_context():
+    config = ProjectAgentDevKitConfig(
+        name="Example",
+        stack={},
+        provider=ProviderConfig(provider="fake"),
+        enabled_agents=("pmo",),
+        agents={},
+    )
+
+    definitions = build_enabled_definitions(config)
+    instructions = definitions["pmo"].instructions
+
+    assert "Git workflow policy:" in instructions
+    assert "production: main" in instructions
+    assert "integration: development" in instructions
+    assert "explicit human authorization" in instructions
