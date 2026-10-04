@@ -29,6 +29,7 @@ class TaskNode:
     id: str
     agent: str
     objective: str
+    phase: str = "implementation"
     depends_on: tuple[str, ...] = ()
     status: str = "pending"
     output: str | None = None
@@ -85,6 +86,9 @@ class TaskPlan:
                         str(item.get("agent") or "")
                     ),
                     objective=str(item.get("objective") or "").strip(),
+                    phase=normalize_gate_key(
+                        str(item.get("phase") or "implementation")
+                    ),
                     depends_on=tuple(
                         str(value).strip()
                         for value in (item.get("depends_on") or [])
@@ -424,6 +428,7 @@ Return exactly this shape:
     {{
       "id": "backend",
       "agent": "backend",
+      "phase": "implementation",
       "objective": "...",
       "depends_on": []
     }}
