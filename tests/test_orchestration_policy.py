@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from agent_dev_kit.orchestration import orchestration_config_from_mapping
@@ -12,20 +14,19 @@ def _plan(
     risk_flags: str = "[]",
     durable_artifacts: str = "[]",
 ) -> TaskPlan:
-    return TaskPlan.from_json(
-        f"""{
-          "request": "{request}",
-          "profile": {
-            "summary": "{request}",
+    payload = {
+        "request": request,
+        "profile": {
+            "summary": request,
             "classification": "test_change",
-            "risk_flags": {risk_flags},
-            "durable_artifacts": {durable_artifacts}
-          },
-          "agent_decisions": {decisions},
-          "required_disabled_agents": [],
-          "nodes": {nodes}
-        }"""
-    )
+            "risk_flags": json.loads(risk_flags),
+            "durable_artifacts": json.loads(durable_artifacts),
+        },
+        "agent_decisions": json.loads(decisions),
+        "required_disabled_agents": [],
+        "nodes": json.loads(nodes),
+    }
+    return TaskPlan.from_json(json.dumps(payload))
 
 
 def test_unknown_risk_flag_is_rejected():
