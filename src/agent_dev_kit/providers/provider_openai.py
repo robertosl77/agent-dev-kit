@@ -2,6 +2,7 @@ from typing import Any, Sequence
 
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.tooling import ToolHandle
+from agent_dev_kit.provider_errors import normalize_provider_exception
 from agent_dev_kit.providers.provider_base import (
     AgentHandle,
     AgentProvider,
@@ -82,7 +83,18 @@ class OpenAIProvider(AgentProvider):
         if session is not None:
             kwargs["session"] = session
 
-        result = await self._runner.run(agent.native, message, **kwargs)
+        try:
+            result = await self._runner.run(
+                agent.native,
+                message,
+                **kwargs,
+            )
+        except Exception as exc:
+            raise normalize_provider_exception(
+                exc,
+                provider=self.key,
+            ) from exc
+
         return self._normalize_result(result)
 
     def run_sync(
@@ -98,7 +110,18 @@ class OpenAIProvider(AgentProvider):
         if session is not None:
             kwargs["session"] = session
 
-        result = self._runner.run_sync(agent.native, message, **kwargs)
+        try:
+            result = self._runner.run_sync(
+                agent.native,
+                message,
+                **kwargs,
+            )
+        except Exception as exc:
+            raise normalize_provider_exception(
+                exc,
+                provider=self.key,
+            ) from exc
+
         return self._normalize_result(result)
 
     def _normalize_result(self, result: Any) -> ProviderRunResult:

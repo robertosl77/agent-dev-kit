@@ -5,7 +5,7 @@ from typing import Any, Mapping
 import yaml
 
 from agent_dev_kit.agent_definition import AgentDefinition
-from agent_dev_kit.provider_config import ProviderConfig
+from agent_dev_kit.provider_config import ProviderConfig, ProviderTargetConfig
 from agent_dev_kit.preferences import (
     PreferenceRule,
     ProjectPreferenceConfig,
@@ -75,10 +75,52 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
 
     provider_name = str(provider_section.get("name") or "openai").strip()
     default_model = provider_section.get("default_model")
+    fallback_policy = str(
+        provider_section.get("fallback_policy") or "never"
+    ).strip().lower()
+
+    raw_fallbacks = provider_section.get("fallbacks") or []
+    if not isinstance(raw_fallbacks, list):
+        raise ValueError("'provider.fallbacks' must be a list.")
+
+    fallbacks: list[ProviderTargetConfig] = []
+    for item in raw_fallbacks:
+        if not isinstance(item, dict):
+            raise ValueError(
+                "Each provider fallback must be a mapping."
+            )
+        fallback_name = str(item.get("name") or "").strip()
+        if not fallback_name:
+            raise ValueError(
+                "Each provider fallback requires 'name'."
+            )
+        fallback_model = item.get("default_model")
+        fallback_options = {
+            key: value
+            for key, value in item.items()
+            if key not in {"name", "default_model"}
+        }
+        fallbacks.append(
+            ProviderTargetConfig(
+                provider=fallback_name,
+                default_model=(
+                    str(fallback_model).strip()
+                    if fallback_model is not None
+                    else None
+                ),
+                options=fallback_options,
+            )
+        )
+
     provider_options = {
         key: value
         for key, value in provider_section.items()
-        if key not in {"name", "default_model"}
+        if key not in {
+            "name",
+            "default_model",
+            "fallback_policy",
+            "fallbacks",
+        }
     }
 
     agents_section = project_data.get("agents") or {}
@@ -109,6 +151,8 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
                 else None
             ),
             options=provider_options,
+            fallbacks=tuple(fallbacks),
+            fallback_policy=fallback_policy,
         ),
         enabled_agents=enabled_agents,
         agents=contextual_agents,

@@ -159,11 +159,15 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         node.status = "running"
-        result = self.provider.run_sync(
-            handle,
-            self._node_prompt(plan, node),
-            session=session,
-        )
+        try:
+            result = self.provider.run_sync(
+                handle,
+                self._node_prompt(plan, node),
+                session=session,
+            )
+        except Exception:
+            node.status = "pending"
+            raise
 
         if result.active_agent.name != handle.name:
             node.status = "blocked"
@@ -189,11 +193,15 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         node.status = "running"
-        result = await self.provider.run(
-            handle,
-            self._node_prompt(plan, node),
-            session=session,
-        )
+        try:
+            result = await self.provider.run(
+                handle,
+                self._node_prompt(plan, node),
+                session=session,
+            )
+        except Exception:
+            node.status = "pending"
+            raise
 
         if result.active_agent.name != handle.name:
             node.status = "blocked"

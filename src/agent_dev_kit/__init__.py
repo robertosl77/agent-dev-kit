@@ -33,7 +33,7 @@ from .agents import (
     build_ux_ui_definition,
     create_ux_ui_agent,
 )
-from .provider_config import ProviderConfig
+from .provider_config import ProviderConfig, ProviderTargetConfig
 from .preferences import (
     PreferenceCandidate,
     PreferenceProfile,
@@ -55,6 +55,17 @@ from .task_plan import (
     TaskPlanError,
 )
 from .provider_registry import ProviderRegistry, build_default_registry
+from .execution import ProviderRuntime
+from .provider_errors import (
+    ProviderAuthenticationError,
+    ProviderError,
+    ProviderExecutionError,
+    ProviderFallbackRequired,
+    ProviderQuotaExceeded,
+    ProviderRateLimited,
+    ProviderRecoverableError,
+    ProviderUnavailable,
+)
 from .providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 
 __all__ = [
@@ -62,6 +73,16 @@ __all__ = [
     "AgentHandle",
     "AgentProvider",
     "ProviderConfig",
+    "ProviderTargetConfig",
+    "ProviderRuntime",
+    "ProviderError",
+    "ProviderAuthenticationError",
+    "ProviderRecoverableError",
+    "ProviderQuotaExceeded",
+    "ProviderRateLimited",
+    "ProviderUnavailable",
+    "ProviderExecutionError",
+    "ProviderFallbackRequired",
     "PreferenceCandidate",
     "PreferenceProfile",
     "PreferenceRule",
