@@ -5,6 +5,7 @@ from agent_dev_kit.agent_catalog import AVAILABLE_AGENT_KEYS, create_enabled_age
 from agent_dev_kit.project_config import ProjectAgentDevKitConfig
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 from agent_dev_kit.tooling import ToolRegistry
+from agent_dev_kit.preferences import PreferenceProfile
 from agent_dev_kit.task_plan import (
     TaskNode,
     TaskPlan,
@@ -28,6 +29,7 @@ class DevAgentKit:
         provider: AgentProvider,
         *,
         tool_registry: ToolRegistry | None = None,
+        preference_profile: PreferenceProfile | None = None,
     ) -> "DevAgentKit":
         return cls(
             config=config,
@@ -36,6 +38,7 @@ class DevAgentKit:
                 provider,
                 config,
                 tool_registry=tool_registry,
+                preference_profile=preference_profile,
             ),
         )
 
