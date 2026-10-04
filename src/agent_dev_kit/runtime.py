@@ -341,6 +341,53 @@ class DevAgentKit:
             "following nodes and final documentation."
         )
 
+    def _build_trace(
+        self,
+        plan: TaskPlan,
+        *,
+        request: str,
+        planning_ms: float,
+    ) -> OrchestrationTrace:
+        profile = plan.profile
+        if profile is None:
+            raise TaskPlanError("Task profile is required for orchestration trace.")
+
+        return OrchestrationTrace(
+            request_summary=profile.summary,
+            request_fingerprint=fingerprint_request(
+                request,
+                profile.classification,
+            ),
+            classification=profile.classification,
+            risk_flags=profile.risk_flags,
+            durable_artifacts=profile.durable_artifacts,
+            agent_decisions=plan.agent_decisions,
+            dag=tuple(
+                {
+                    "id": node.id,
+                    "agent": node.agent,
+                    "depends_on": list(node.depends_on),
+                }
+                for node in plan.nodes
+            ),
+            full_request=(
+                request
+                if self.config.orchestration.persist_full_request
+                else None
+            ),
+            model_calls=1,
+            node_durations_ms={"__planning__": planning_ms},
+            status="planned",
+        )
+
+    def _complete_trace(self, plan: TaskPlan) -> None:
+        if plan.trace is None:
+            return
+
+        plan.trace.status = "completed"
+        if self.trace_store is not None and not plan.trace.persisted:
+            self.trace_store.append(plan.trace)
+
     def _resolve_start_agent(self, start_agent: str | None) -> AgentHandle:
         if start_agent is not None:
             try:
