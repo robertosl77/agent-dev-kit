@@ -1,10 +1,16 @@
 from dataclasses import dataclass
 from typing import Any
 
-from agent_dev_kit.agent_catalog import create_enabled_agents
+from agent_dev_kit.agent_catalog import AVAILABLE_AGENT_KEYS, create_enabled_agents
 from agent_dev_kit.project_config import ProjectAgentDevKitConfig
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 from agent_dev_kit.tooling import ToolRegistry
+from agent_dev_kit.task_plan import (
+    TaskNode,
+    TaskPlan,
+    TaskPlanError,
+    build_planning_prompt,
+)
 
 
 @dataclass(slots=True)
@@ -43,6 +49,192 @@ class DevAgentKit:
             kit=self,
             session=session,
             active_agent=self._resolve_start_agent(start_agent),
+        )
+
+    def plan_task_sync(
+        self,
+        request: str,
+        *,
+        session: Any | None = None,
+    ) -> TaskPlan:
+        """Ask Triage for a structured multi-specialist DAG."""
+
+        if "triage" not in self.agents:
+            raise ValueError(
+                "Triage must be enabled to create a multi-agent task plan."
+            )
+
+        prompt = build_planning_prompt(
+            request,
+            enabled_agents=self.agents.keys(),
+            available_agents=AVAILABLE_AGENT_KEYS,
+        )
+        result = self.provider.run_sync(
+            self.agents["triage"],
+            prompt,
+            session=session,
+        )
+        return TaskPlan.from_json(result.output)
+
+    async def plan_task(
+        self,
+        request: str,
+        *,
+        session: Any | None = None,
+    ) -> TaskPlan:
+        """Async variant of plan_task_sync."""
+
+        if "triage" not in self.agents:
+            raise ValueError(
+                "Triage must be enabled to create a multi-agent task plan."
+            )
+
+        prompt = build_planning_prompt(
+            request,
+            enabled_agents=self.agents.keys(),
+            available_agents=AVAILABLE_AGENT_KEYS,
+        )
+        result = await self.provider.run(
+            self.agents["triage"],
+            prompt,
+            session=session,
+        )
+        return TaskPlan.from_json(result.output)
+
+    def execute_plan_sync(
+        self,
+        plan: TaskPlan,
+        *,
+        session: Any | None = None,
+    ) -> TaskPlan:
+        """Execute ready DAG nodes sequentially while respecting dependencies."""
+
+        plan.validate_structure()
+        plan.validate_enabled(self.agents.keys())
+
+        while not plan.is_complete:
+            ready = plan.ready_nodes()
+            if not ready:
+                raise TaskPlanError(
+                    "Task plan has pending nodes but none are executable."
+                )
+
+            for node in ready:
+                self._execute_node_sync(plan, node, session=session)
+
+        return plan
+
+    async def execute_plan(
+        self,
+        plan: TaskPlan,
+        *,
+        session: Any | None = None,
+    ) -> TaskPlan:
+        """Async provider execution with deterministic DAG sequencing."""
+
+        plan.validate_structure()
+        plan.validate_enabled(self.agents.keys())
+
+        while not plan.is_complete:
+            ready = plan.ready_nodes()
+            if not ready:
+                raise TaskPlanError(
+                    "Task plan has pending nodes but none are executable."
+                )
+
+            for node in ready:
+                await self._execute_node(plan, node, session=session)
+
+        return plan
+
+    def _execute_node_sync(
+        self,
+        plan: TaskPlan,
+        node: TaskNode,
+        *,
+        session: Any | None,
+    ) -> None:
+        handle = self.agents[node.agent]
+        node.status = "running"
+        result = self.provider.run_sync(
+            handle,
+            self._node_prompt(plan, node),
+            session=session,
+        )
+
+        if result.active_agent.name != handle.name:
+            node.status = "blocked"
+            raise TaskPlanError(
+                f"Node '{node.id}' handed off unexpectedly from "
+                f"'{handle.name}' to '{result.active_agent.name}'. "
+                "The task DAG owns cross-specialist sequencing."
+            )
+
+        node.output = result.output
+        node.evidence = {
+            "provider": self.provider.key,
+            "active_agent": result.active_agent.name,
+        }
+        node.status = "completed"
+
+    async def _execute_node(
+        self,
+        plan: TaskPlan,
+        node: TaskNode,
+        *,
+        session: Any | None,
+    ) -> None:
+        handle = self.agents[node.agent]
+        node.status = "running"
+        result = await self.provider.run(
+            handle,
+            self._node_prompt(plan, node),
+            session=session,
+        )
+
+        if result.active_agent.name != handle.name:
+            node.status = "blocked"
+            raise TaskPlanError(
+                f"Node '{node.id}' handed off unexpectedly from "
+                f"'{handle.name}' to '{result.active_agent.name}'. "
+                "The task DAG owns cross-specialist sequencing."
+            )
+
+        node.output = result.output
+        node.evidence = {
+            "provider": self.provider.key,
+            "active_agent": result.active_agent.name,
+        }
+        node.status = "completed"
+
+    @staticmethod
+    def _node_prompt(plan: TaskPlan, node: TaskNode) -> str:
+        dependency_context = []
+        for dependency_id in node.depends_on:
+            dependency = plan.node(dependency_id)
+            dependency_context.append(
+                f"[{dependency.id} / {dependency.agent}]\n"
+                f"{dependency.output or '(no output)'}"
+            )
+
+        dependencies = (
+            "\n\n".join(dependency_context)
+            if dependency_context
+            else "(none)"
+        )
+
+        return (
+            "Execute only this DAG node. Do not hand off to another "
+            "specialist; cross-specialist sequencing is owned by the task "
+            "plan. If another responsibility is required, report it as a "
+            "blocker.\n\n"
+            f"Original request:\n{plan.request}\n\n"
+            f"Node id: {node.id}\n"
+            f"Your responsibility: {node.agent}\n"
+            f"Objective:\n{node.objective}\n\n"
+            f"Completed dependency outputs:\n{dependencies}\n\n"
+            "Return the node result and concise evidence useful to the "
+            "following nodes and final documentation."
         )
 
     def _resolve_start_agent(self, start_agent: str | None) -> AgentHandle:
