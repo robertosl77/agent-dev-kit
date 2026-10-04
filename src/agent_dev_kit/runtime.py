@@ -11,6 +11,7 @@ from agent_dev_kit.orchestration import (
     OrchestrationTrace,
     OrchestrationTraceStore,
     fingerprint_request,
+    fingerprint_routing,
 )
 from agent_dev_kit.task_plan import (
     TaskNode,
@@ -372,6 +373,7 @@ class DevAgentKit:
                 }
                 for node in plan.nodes
             ),
+            routing_fingerprint=fingerprint_routing(profile),
             full_request=(
                 request
                 if self.config.orchestration.persist_full_request
