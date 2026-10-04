@@ -107,3 +107,24 @@ def test_unknown_enabled_agent_fails_explicitly():
         assert "super_agent" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+
+def test_enabled_agent_receives_consuming_project_stack():
+    config = ProjectAgentDevKitConfig(
+        name="LibreriaIngles",
+        stack={
+            "backend": {"language": "Python", "framework": "FastAPI"},
+            "database": {"engine": "SQLite"},
+        },
+        provider=ProviderConfig(provider="fake"),
+        enabled_agents=("backend",),
+        agents={},
+    )
+
+    definitions = build_enabled_definitions(config)
+    instructions = definitions["backend"].instructions
+
+    assert "LibreriaIngles" in instructions
+    assert "Python" in instructions
+    assert "FastAPI" in instructions
+    assert "SQLite" in instructions

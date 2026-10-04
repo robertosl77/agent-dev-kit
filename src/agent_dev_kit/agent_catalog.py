@@ -22,7 +22,7 @@ from agent_dev_kit.agents import (
 )
 from agent_dev_kit.project_config import (
     ProjectAgentDevKitConfig,
-    apply_contextual_config,
+    apply_project_context,
 )
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider
 
@@ -92,9 +92,10 @@ def build_enabled_definitions(
         key = normalize_agent_key(raw_key)
         builder = AGENT_BUILDERS[key]
         definition = builder(model=config.provider.default_model)
-        resolved[key] = apply_contextual_config(
+        resolved[key] = apply_project_context(
             definition,
-            config.agent(key),
+            config,
+            key,
         )
 
     return resolved
