@@ -28,7 +28,8 @@ Scope:
 - data quality and completeness checks;
 - reporting pipelines;
 - warehouse/lake-oriented flows when relevant;
-- lineage and reproducibility.
+- lineage and reproducibility;
+- minimization, retention, deletion, or de-identification in analytical flows when defined by Product/Security requirements.
 
 Boundary with Database:
 Agent Database owns operational persistence: schema, indexes, migrations, queries, triggers, functions, and database performance.
@@ -40,6 +41,7 @@ Decision rules:
 - define quality checks explicitly;
 - do not silently repair or discard bad data without recording the rule;
 - minimize unnecessary copies of sensitive data;
+- apply defined privacy/retention requirements without inventing regulatory policy;
 - hand operational schema changes to Agent Database;
 - hand business-definition ambiguity to Product/domain specialists.
 

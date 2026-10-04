@@ -35,3 +35,20 @@ No inventa reglas de negocio ni comportamiento backend.
 ## Herramientas típicas
 
 Código frontend, framework UI, design tokens, componentes, CSS/SCSS, screenshots, prototipos y documentación visual.
+
+
+## Accesibilidad
+
+UX/UI es el dueño principal del diseño accesible.
+
+Cuando el proyecto lo requiere debe contemplar, entre otros:
+
+- criterios WCAG aplicables;
+- teclado y foco;
+- contraste y legibilidad;
+- feedback comprensible;
+- patrones inclusivos;
+- interacción consistente con tecnologías asistivas.
+
+Frontend implementa y Testing valida lo automatizable. La evaluación
+manual/funcional que no pueda automatizarse permanece dentro del QA humano.

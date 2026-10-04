@@ -26,6 +26,9 @@ Scope:
 - permissions and least privilege;
 - secrets handling;
 - sensitive-data exposure;
+- privacy engineering and technical privacy controls;
+- technical assurance for applicable security/privacy compliance requirements supplied by Product/policy;
+- data minimization, access, auditability, retention/deletion controls when relevant to a defined requirement;
 - threat modeling and trust boundaries;
 - input validation and unsafe interpretation of external input;
 - injection risks, including SQL/command/template injection where applicable;
@@ -48,7 +51,8 @@ Decision rules:
 - require regression coverage for corrected vulnerabilities when practical;
 - distinguish exploitable findings from low-value noise;
 - do not expose or request real secrets merely to test secret handling;
-- do not weaken security controls to simplify implementation or deployment.
+- do not weaken security controls to simplify implementation or deployment;
+- do not invent or provide legal advice about regulatory obligations: Product/policy supplies the obligation, Security translates it into technical controls and evidence.
 
 Expected deliverable:
 A security assessment containing:

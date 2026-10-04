@@ -58,3 +58,21 @@ defecto.
 
 El proyecto define tecnologías concretas, CI, ambientes, herramientas de
 seguridad, thresholds de severidad y restricciones operativas.
+
+
+## Platform engineering y release operations
+
+DevOps absorbe las responsabilidades de platform engineering cuando existe una
+necesidad repetida de:
+
+- workflows reutilizables;
+- developer self-service;
+- entornos estandarizados;
+- CI/CD;
+- promoción entre ambientes;
+- rollout;
+- rollback/recovery;
+- release operations.
+
+Architecture interviene cuando estas capacidades implican decisiones
+estructurales o nuevos límites/servicios.

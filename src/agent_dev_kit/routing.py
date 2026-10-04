@@ -7,7 +7,10 @@ DEFAULT_CAPABILITY_GRAPH: dict[str, tuple[str, ...]] = {
         "database", "security", "testing", "reviewer", "documentation",
         "devops", "performance", "observability", "data",
     ),
-    "product": ("pmo", "architecture", "ux_ui", "documentation", "triage"),
+    "product": (
+        "pmo", "architecture", "ux_ui", "security", "observability",
+        "documentation", "triage",
+    ),
     "pmo": ("product", "architecture", "reviewer", "documentation", "triage"),
     "architecture": (
         "backend", "frontend", "database", "security", "devops",
@@ -28,8 +31,8 @@ DEFAULT_CAPABILITY_GRAPH: dict[str, tuple[str, ...]] = {
         "observability", "reviewer", "documentation", "triage",
     ),
     "security": (
-        "backend", "frontend", "database", "devops", "testing",
-        "reviewer", "documentation", "triage",
+        "backend", "frontend", "database", "data", "devops", "testing",
+        "observability", "reviewer", "documentation", "triage",
     ),
     "testing": (
         "backend", "frontend", "database", "security", "performance",
@@ -41,15 +44,15 @@ DEFAULT_CAPABILITY_GRAPH: dict[str, tuple[str, ...]] = {
     ),
     "documentation": ("pmo", "triage"),
     "devops": (
-        "backend", "security", "testing", "observability", "performance",
-        "reviewer", "documentation", "triage",
+        "architecture", "backend", "security", "testing", "observability",
+        "performance", "reviewer", "documentation", "triage",
     ),
     "performance": (
         "backend", "frontend", "database", "devops", "observability",
         "testing", "reviewer", "documentation", "triage",
     ),
     "observability": (
-        "backend", "devops", "performance", "security",
+        "backend", "devops", "performance", "security", "pmo",
         "reviewer", "documentation", "triage",
     ),
     "data": (

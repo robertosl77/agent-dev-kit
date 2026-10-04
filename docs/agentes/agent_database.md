@@ -35,3 +35,11 @@ ETL, datasets analíticos y reporting pertenecen a Agent Data. La lógica de neg
 ## Herramientas típicas
 
 Motor configurado, SQL, migraciones, explain plans y herramientas DBA del proyecto.
+
+
+## Lifecycle y privacidad de datos operacionales
+
+Database puede implementar mecanismos de retención, borrado, anonimización o
+restricción de acceso cuando Product/Security definieron ese requisito.
+
+No interpreta regulación ni decide por sí mismo la política de privacidad.

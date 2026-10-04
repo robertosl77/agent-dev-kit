@@ -136,6 +136,7 @@ agents:
 ## Documentación
 
 - [Catálogo de agentes](docs/catalogo_agentes.md)
+- [Auditoría de responsabilidades SDLC](docs/auditoria_roles_sdlc.md)
 - [Configuración nativa y contextual](docs/configuracion_nativa_y_contextual.md)
 - [Activación de agentes](docs/activacion_agentes.md)
 - [Contexto del proyecto](docs/contexto_proyecto.md)

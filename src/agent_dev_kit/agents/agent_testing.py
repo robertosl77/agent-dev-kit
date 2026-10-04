@@ -35,6 +35,8 @@ Scope:
 - security regression tests for previously identified vulnerabilities;
 - defensive tests for malformed/untrusted input when Security defines the risk;
 - authorization-negative tests when expected permissions are known;
+- automated accessibility checks when the project exposes deterministic criteria/tools;
+- accessibility test plans that identify checks requiring human/manual evaluation;
 - CI-oriented automated execution;
 - testability recommendations when code is difficult to validate.
 
@@ -50,7 +52,8 @@ Decision rules:
 - distinguish code coverage from behavioral confidence;
 - if expected behavior is unclear, escalate to Product or the relevant domain specialist instead of inventing requirements;
 - if architecture prevents reasonable testing, escalate to Architecture;
-- if the issue is security-specific or performance-specific, coordinate with the corresponding specialist rather than replacing it.
+- if the issue is security-specific or performance-specific, coordinate with the corresponding specialist rather than replacing it;
+- accessibility requirements come from Product/UX/UI; Testing validates them but does not redefine the experience.
 
 Expected deliverable:
 A technical validation package that can include:
