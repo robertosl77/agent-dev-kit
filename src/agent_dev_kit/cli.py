@@ -47,6 +47,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Task request to plan and execute.",
     )
 
+    mcp = subparsers.add_parser(
+        "mcp",
+        help="Expose Agent Dev Kit as a standard MCP server.",
+    )
+    mcp.add_argument(
+        "project_root",
+        nargs="?",
+        default=".",
+        help="Consuming project root (default: current directory).",
+    )
+    mcp.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http"),
+        default="stdio",
+        help="MCP transport (default: stdio).",
+    )
+    mcp.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="HTTP bind host. Non-loopback hosts are rejected.",
+    )
+    mcp.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="HTTP port for streamable-http (default: 8000).",
+    )
+
     return parser
 
 
@@ -55,6 +83,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "mcp":
+            from agent_dev_kit.mcp_server import run_mcp_server
+
+            run_mcp_server(
+                Path(args.project_root),
+                transport=args.transport,
+                host=args.host,
+                port=args.port,
+            )
+            return 0
+
         config = load_project_config(Path(args.project_root))
         runtime = ProviderRuntime(
             registry=build_default_registry(),
