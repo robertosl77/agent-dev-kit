@@ -38,6 +38,8 @@ agent-dev-kit/
 ├── src/
 │   └── agent_dev_kit/
 │       ├── agent_definition.py
+│       ├── agents/
+│       │   └── agent_pmo.py
 │       ├── provider_config.py
 │       ├── provider_registry.py
 │       └── providers/
@@ -47,4 +49,4 @@ agent-dev-kit/
 └── pyproject.toml
 ```
 
-Los archivos `agent_*.py` se incorporarán a medida que se implementen los agentes del catálogo.
+Los archivos `agent_*.py` se incorporan a medida que se implementan los agentes del catálogo. El primero disponible es `Agent PMO`.
