@@ -15,6 +15,7 @@ class ContextualAgentConfig:
     key: str
     extra_instructions: tuple[str, ...] = ()
     project_rules: Mapping[str, Any] = field(default_factory=dict)
+    tools: tuple[str, ...] = ()
     raw: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -206,10 +207,15 @@ def _load_agent_config(path: Path) -> ContextualAgentConfig:
     if not isinstance(rules, dict):
         raise ValueError(f"'project_rules' must be a mapping in {path}.")
 
+    tools = data.get("tools") or []
+    if not isinstance(tools, list):
+        raise ValueError(f"'tools' must be a list in {path}.")
+
     return ContextualAgentConfig(
         key=key,
         extra_instructions=tuple(str(item).strip() for item in extra if str(item).strip()),
         project_rules=rules,
+        tools=tuple(str(item).strip() for item in tools if str(item).strip()),
         raw=data,
     )
 
