@@ -26,6 +26,7 @@ from agent_dev_kit.project_config import (
 )
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider
 from agent_dev_kit.tooling import ToolRegistry
+from agent_dev_kit.routing import build_enabled_capability_graph
 
 
 AgentDefinitionBuilder: TypeAlias = Callable[..., AgentDefinition]
@@ -143,23 +144,22 @@ def create_enabled_agents(
             handles[key] = provider.create_agent(definition)
 
     if "triage" in definitions:
-        specialist_handles = tuple(handles.values())
         triage_tools = tools_for("triage")
         if triage_tools:
             handles["triage"] = provider.create_agent(
                 definitions["triage"],
-                handoffs=specialist_handles,
                 tools=triage_tools,
             )
         else:
             handles["triage"] = provider.create_agent(
                 definitions["triage"],
-                handoffs=specialist_handles,
             )
 
-        # Specialists return to Triage only when the topic leaves their scope.
-        triage = handles["triage"]
-        for specialist in specialist_handles:
-            provider.set_handoffs(specialist, (triage,))
+    capability_graph = build_enabled_capability_graph(handles.keys())
+    for source, targets in capability_graph.items():
+        provider.set_handoffs(
+            handles[source],
+            tuple(handles[target] for target in targets),
+        )
 
     return handles
