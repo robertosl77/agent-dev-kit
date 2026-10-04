@@ -464,17 +464,53 @@ class AgentDevKitGateway:
         if plan is None:
             return None
 
+        profile = plan.profile
+        trace = plan.trace
+
         return {
             "request": plan.request,
+            "profile": (
+                {
+                    "summary": profile.summary,
+                    "classification": profile.classification,
+                    "risk_flags": list(profile.risk_flags),
+                    "durable_artifacts": list(profile.durable_artifacts),
+                }
+                if profile is not None
+                else None
+            ),
+            "agent_decisions": [
+                {
+                    "agent": item.agent,
+                    "selected": item.selected,
+                    "gate": item.gate,
+                    "reason": item.reason,
+                }
+                for item in plan.agent_decisions
+            ],
             "required_disabled_agents": list(
                 plan.required_disabled_agents
             ),
             "notes": plan.notes,
             "is_complete": plan.is_complete,
+            "orchestration_trace": (
+                {
+                    "request_fingerprint": trace.request_fingerprint,
+                    "classification": trace.classification,
+                    "model_calls": trace.model_calls,
+                    "handoffs": trace.handoffs,
+                    "revisits": trace.revisits,
+                    "status": trace.status,
+                    "node_durations_ms": dict(trace.node_durations_ms),
+                }
+                if trace is not None
+                else None
+            ),
             "nodes": [
                 {
                     "id": node.id,
                     "agent": node.agent,
+                    "phase": node.phase,
                     "objective": node.objective,
                     "depends_on": list(node.depends_on),
                     "status": node.status,
