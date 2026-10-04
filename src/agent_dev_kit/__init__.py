@@ -36,6 +36,12 @@ from .agents import (
 from .provider_config import ProviderConfig
 from .runtime import DevAgentKit, DevConversation
 from .tooling import ToolHandle, ToolRegistry
+from .task_plan import (
+    DisabledAgentRequiredError,
+    TaskNode,
+    TaskPlan,
+    TaskPlanError,
+)
 from .provider_registry import ProviderRegistry, build_default_registry
 from .providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 
@@ -50,6 +56,10 @@ __all__ = [
     "DevConversation",
     "ToolHandle",
     "ToolRegistry",
+    "TaskNode",
+    "TaskPlan",
+    "TaskPlanError",
+    "DisabledAgentRequiredError",
     "build_default_registry",
     "build_architecture_definition",
     "create_architecture_agent",
