@@ -34,7 +34,11 @@ agentes habilitados
     ↓
 Triage
     ↓
-DAG
+perfil + gates por especialista
+    ↓
+validación determinística
+    ↓
+DAG mínimo con fases
 
               Architecture
               /          \
@@ -72,6 +76,10 @@ reanuda desde nodos pendientes
 
 Architecture, Database y UX/UI no vuelven a ejecutarse.
 
+La traza del orquestador conserva intentos, revisitas, provider utilizado y
+estado suficiente para verificar que la reanudación no repitió nodos ya
+completados.
+
 ## Agente deshabilitado
 
 Un segundo escenario deshabilita UX/UI.
@@ -79,6 +87,21 @@ Un segundo escenario deshabilita UX/UI.
 Triage identifica que la responsabilidad es necesaria y la ejecución queda bloqueada con `DisabledAgentRequiredError`.
 
 Frontend no sustituye a UX/UI.
+
+## Orquestación por riesgo
+
+El smoke test actual también valida el contrato de M-028:
+
+- Triage devuelve perfil de solicitud;
+- cada especialista habilitado tiene decisión explícita de inclusión/omisión;
+- los riesgos declarados obligan a seleccionar sus responsables;
+- los nodos incluyen fase;
+- el runtime genera una traza estructurada;
+- el fallback incrementa la revisita únicamente para el nodo que se reintenta;
+- los especialistas reciben contexto acotado a resumen, objetivo y dependencias.
+
+La aceptación funcional final continúa fuera del smoke automatizado y pertenece
+al QA humano.
 
 ## Costo
 
@@ -88,4 +111,7 @@ No consume tokens ni APIs externas.
 
 ## Criterio de salida
 
-M-022 se considera completada únicamente cuando este escenario pasa dentro de GitHub Actions junto con toda la suite.
+Para el release v0.1.0, este escenario debe pasar dentro de GitHub Actions junto
+con toda la suite en `development`, en el PR de release
+`development → main` y finalmente sobre el commit de `main` que recibirá el
+tag.
