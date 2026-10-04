@@ -466,11 +466,37 @@ class AgentDevKitGateway:
 
         return {
             "request": plan.request,
+            "request_summary": plan.request_summary,
+            "request_class": plan.request_class,
+            "issue_reference": plan.issue_reference,
+            "policy_version": plan.policy_version,
+            "gates": list(plan.gates),
+            "forced_agents": list(plan.forced_agents),
+            "decisions": [
+                {
+                    "agent": item.agent,
+                    "selected": item.selected,
+                    "reason": item.reason,
+                }
+                for item in plan.decisions
+            ],
+            "artifacts": [
+                {
+                    "kind": item.kind,
+                    "action": item.action,
+                }
+                for item in plan.artifacts
+            ],
             "required_disabled_agents": list(
                 plan.required_disabled_agents
             ),
             "notes": plan.notes,
             "is_complete": plan.is_complete,
+            "trace": (
+                plan.trace.to_dict()
+                if plan.trace is not None
+                else None
+            ),
             "nodes": [
                 {
                     "id": node.id,
