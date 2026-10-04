@@ -19,6 +19,25 @@ from agent_dev_kit.preferences import (
 
 
 @dataclass(frozen=True, slots=True)
+class DocumentationConfig:
+    templates: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class OrchestrationTraceConfig:
+    path: str | None = None
+    retain_request_text: bool = False
+    propose_issues: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class OrchestrationConfig:
+    trace: OrchestrationTraceConfig = field(
+        default_factory=OrchestrationTraceConfig
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ContextualAgentConfig:
     """Project-specific additions for one reusable agent role."""
 
@@ -39,6 +58,9 @@ class ProjectAgentDevKitConfig:
     enabled_agents: tuple[str, ...]
     agents: Mapping[str, ContextualAgentConfig]
     git_workflow: GitWorkflowConfig = field(default_factory=GitWorkflowConfig)
+    documentation: DocumentationConfig = field(default_factory=DocumentationConfig)
+    orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
+    project_root: Path | None = None
     preference_config: ProjectPreferenceConfig = field(
         default_factory=ProjectPreferenceConfig
     )
@@ -128,6 +150,44 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
         }
     }
 
+    documentation_section = project_data.get("documentation") or {}
+    if not isinstance(documentation_section, dict):
+        raise ValueError("'documentation' must be a mapping.")
+    templates = documentation_section.get("templates") or {}
+    if not isinstance(templates, dict):
+        raise ValueError("'documentation.templates' must be a mapping.")
+    documentation_config = DocumentationConfig(
+        templates={
+            str(key).strip(): str(value).strip()
+            for key, value in templates.items()
+            if str(key).strip() and str(value).strip()
+        }
+    )
+
+    orchestration_section = project_data.get("orchestration") or {}
+    if not isinstance(orchestration_section, dict):
+        raise ValueError("'orchestration' must be a mapping.")
+    trace_section = orchestration_section.get("trace") or {}
+    if not isinstance(trace_section, dict):
+        raise ValueError("'orchestration.trace' must be a mapping.")
+    trace_path_raw = trace_section.get("path")
+    orchestration_config = OrchestrationConfig(
+        trace=OrchestrationTraceConfig(
+            path=(
+                str(trace_path_raw).strip()
+                if trace_path_raw is not None
+                and str(trace_path_raw).strip()
+                else None
+            ),
+            retain_request_text=bool(
+                trace_section.get("retain_request_text", False)
+            ),
+            propose_issues=bool(
+                trace_section.get("propose_issues", True)
+            ),
+        )
+    )
+
     agents_section = project_data.get("agents") or {}
     if not isinstance(agents_section, dict):
         raise ValueError("'agents' must be a mapping.")
@@ -164,11 +224,43 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
         git_workflow=git_workflow_from_mapping(
             project_data.get("git_workflow")
         ),
+        documentation=documentation_config,
+        orchestration=orchestration_config,
+        project_root=root.resolve(),
         preference_config=load_project_preference_config(
             config_dir / "preferences.yaml"
         ),
         raw=project_data,
     )
+
+
+
+def load_documentation_template(
+    config: ProjectAgentDevKitConfig,
+    kind: str,
+) -> tuple[str, str] | None:
+    """Load one configured project template without escaping the project root."""
+
+    relative = config.documentation.templates.get(kind)
+    if relative is None or config.project_root is None:
+        return None
+
+    root = config.project_root.resolve()
+    candidate = (root / relative).resolve()
+
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Documentation template '{kind}' escapes the project root."
+        ) from exc
+
+    if not candidate.is_file():
+        raise FileNotFoundError(
+            f"Documentation template '{kind}' not found: {relative}"
+        )
+
+    return relative, candidate.read_text(encoding="utf-8")
 
 
 def apply_project_context(
