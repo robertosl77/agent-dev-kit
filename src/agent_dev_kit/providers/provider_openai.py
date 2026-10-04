@@ -55,6 +55,15 @@ class OpenAIProvider(AgentProvider):
             native=native,
         )
 
+    def set_handoffs(
+        self,
+        agent: AgentHandle,
+        handoffs: Sequence[AgentHandle],
+    ) -> None:
+        self._validate_handle(agent)
+        self._validate_handoffs(handoffs)
+        agent.native.handoffs = [item.native for item in handoffs]
+
     async def run(
         self,
         agent: AgentHandle,
