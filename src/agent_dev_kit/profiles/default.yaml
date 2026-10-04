@@ -1,0 +1,34 @@
+profile:
+  name: default
+
+preferences:
+  - id: modular_structure
+    rule: "Preferir módulos y archivos cohesivos antes que componentes monolíticos cuando existen responsabilidades diferentes."
+    agents:
+      - architecture
+      - backend
+      - frontend
+      - database
+      - data
+      - reviewer
+
+  - id: single_responsibility_owner
+    rule: "Evitar que dos componentes distintos sean responsables sustancialmente del mismo concepto; buscar un dueño claro de la responsabilidad."
+    agents:
+      - architecture
+      - backend
+      - frontend
+      - database
+      - data
+      - reviewer
+
+  - id: explicit_layer_boundaries
+    rule: "Preferir separación explícita de capas y límites de responsabilidad cuando los conceptos evolucionan de forma independiente."
+    agents:
+      - architecture
+      - backend
+      - frontend
+      - database
+      - reviewer
+
+candidates: []
