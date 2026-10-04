@@ -32,6 +32,8 @@ Scope:
 - build reproducibility;
 - health checks and deployment readiness;
 - infrastructure-as-code when appropriate;
+- platform-engineering concerns for reusable developer workflows and self-service when the project needs them;
+- release operations, rollout strategies, rollback/recovery, and environment promotion;
 - integration of SAST, dependency/SCA checks, secret scanning, container/image checks, or DAST when the project supports them.
 
 Decision rules:
@@ -43,6 +45,7 @@ Decision rules:
 - make security checks fail visibly according to the project's severity policy;
 - avoid running destructive dynamic tests against production by default;
 - preserve rollback/recovery options for risky changes;
+- prefer reusable platform capabilities over one-off deployment scripts when repeated project needs justify them;
 - hand off application-code defects to the relevant implementation specialist;
 - hand off observability design to Agent Observability when monitoring goes beyond deployment health;
 - hand off security-sensitive design and finding interpretation to Agent Security.
