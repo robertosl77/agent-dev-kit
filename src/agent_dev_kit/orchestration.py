@@ -135,6 +135,7 @@ class OrchestrationTrace:
     durable_artifacts: tuple[str, ...]
     agent_decisions: tuple[AgentGateDecision, ...]
     dag: tuple[dict[str, Any], ...]
+    routing_fingerprint: str = ""
     full_request: str | None = None
     model_calls: int = 0
     handoffs: int = 0
@@ -150,6 +151,7 @@ class OrchestrationTrace:
             "request_summary": self.request_summary,
             "request_fingerprint": self.request_fingerprint,
             "classification": self.classification,
+            "routing_fingerprint": self.routing_fingerprint,
             "risk_flags": list(self.risk_flags),
             "durable_artifacts": list(self.durable_artifacts),
             "agent_decisions": [asdict(item) for item in self.agent_decisions],
@@ -254,6 +256,17 @@ def fingerprint_request(request: str, classification: str = "") -> str:
     return hashlib.sha256(payload).hexdigest()[:20]
 
 
+def fingerprint_routing(profile: RequestProfile) -> str:
+    payload = "|".join(
+        (
+            profile.classification.strip().lower(),
+            ",".join(sorted(profile.risk_flags)),
+            ",".join(sorted(profile.durable_artifacts)),
+        )
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:20]
+
+
 def validate_gate_policy(
     *,
     profile: RequestProfile,
@@ -313,7 +326,11 @@ def detect_improvement_candidates(
     grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
     for trace in traces:
         key = (
-            str(trace.get("request_fingerprint") or ""),
+            str(
+                trace.get("routing_fingerprint")
+                or trace.get("request_fingerprint")
+                or ""
+            ),
             str(trace.get("classification") or ""),
         )
         grouped.setdefault(key, []).append(trace)
