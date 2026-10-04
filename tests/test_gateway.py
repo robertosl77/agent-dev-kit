@@ -45,7 +45,7 @@ class GatewayProvider(AgentProvider):
 
     def run_sync(self, agent, message, *, session=None):
         if (
-            agent.name == "Agent Triage"
+            agent.name == "Agent Triage Planner"
             and "Planning-only operation" in message
         ):
             return ProviderRunResult(
@@ -78,6 +78,7 @@ class GatewayProvider(AgentProvider):
                     }
                   ],
                   "required_disabled_agents": [],
+                  "notes": null,
                   "nodes": [
                     {
                       "id": "backend",
