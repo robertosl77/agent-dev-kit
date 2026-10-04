@@ -77,7 +77,7 @@ class AgentDevKitGateway:
         return {
             "status": "ok",
             "project": self.config.name,
-            "project_root": str(self.project_root),
+            "project_directory": self.project_root.name,
             "enabled_agents": list(self.config.enabled_agents),
             "stack": dict(self.config.stack),
             "provider": {
