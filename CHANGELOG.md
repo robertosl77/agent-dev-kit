@@ -24,6 +24,19 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - Testing, Reviewer y Documentation dentro del flujo;
 - QA funcional final humano.
 
+### Orquestación eficiente
+
+- subgrafo mínimo suficiente por tarea;
+- gates explícitos para todas las responsabilidades;
+- rechazo determinístico de especialistas sin gate/override;
+- fases temporales por nodo para permitir participaciones múltiples justificadas;
+- contexto mínimo por especialista mediante request summary + dependencias directas;
+- plantillas funcionales/técnicas configurables por proyecto;
+- trazas estructuradas con fingerprint, decisiones, DAG, duración, contexto y tokens cuando estén disponibles;
+- pedido original no persistido por defecto;
+- telemetría JSONL local opcional y fuera de Git;
+- propuestas de Issues por patrones repetidos sin auto-modificar el framework.
+
 ### Preferencias
 
 - perfil global persistente dentro de Agent Dev Kit;
