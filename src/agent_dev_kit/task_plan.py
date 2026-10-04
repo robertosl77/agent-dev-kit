@@ -2,6 +2,14 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from agent_dev_kit.orchestration_policy import (
+    AgentDecision,
+    OrchestrationPolicyError,
+    normalize_gate,
+    validate_plan_policy,
+)
+from agent_dev_kit.orchestration_trace import OrchestrationTrace
+
 
 class TaskPlanError(ValueError):
     pass
@@ -13,6 +21,18 @@ class DisabledAgentRequiredError(TaskPlanError):
         super().__init__(
             "Task requires disabled agent(s): " + ", ".join(self.agents)
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRequest:
+    kind: str
+    action: str = "update"
+
+    def __post_init__(self) -> None:
+        if not self.kind.strip():
+            raise TaskPlanError("Artifact request requires kind.")
+        if not self.action.strip():
+            raise TaskPlanError("Artifact request requires action.")
 
 
 @dataclass(slots=True)
@@ -32,6 +52,15 @@ class TaskPlan:
     nodes: list[TaskNode]
     required_disabled_agents: tuple[str, ...] = ()
     notes: str | None = None
+    request_summary: str = ""
+    request_class: str = "general"
+    issue_reference: str | None = None
+    gates: tuple[str, ...] = ()
+    forced_agents: tuple[str, ...] = ()
+    decisions: tuple[AgentDecision, ...] = ()
+    artifacts: tuple[ArtifactRequest, ...] = ()
+    policy_version: int = 0
+    trace: OrchestrationTrace | None = None
 
     @classmethod
     def from_json(cls, payload: str) -> "TaskPlan":
@@ -79,8 +108,63 @@ class TaskPlan:
             for value in (data.get("required_disabled_agents") or [])
         )
 
+        gates_raw = data.get("gates") or []
+        if not isinstance(gates_raw, list):
+            raise TaskPlanError("'gates' must be a list.")
+        gates = tuple(normalize_gate(str(value)) for value in gates_raw)
+
+        forced_raw = data.get("forced_agents") or []
+        if not isinstance(forced_raw, list):
+            raise TaskPlanError("'forced_agents' must be a list.")
+        forced_agents = tuple(
+            normalize_agent_key(str(value)) for value in forced_raw
+        )
+
+        decisions_raw = data.get("decisions") or []
+        if not isinstance(decisions_raw, list):
+            raise TaskPlanError("'decisions' must be a list.")
+        decisions: list[AgentDecision] = []
+        for item in decisions_raw:
+            if not isinstance(item, dict):
+                raise TaskPlanError(
+                    "Each orchestration decision must be an object."
+                )
+            try:
+                decisions.append(
+                    AgentDecision(
+                        agent=normalize_agent_key(
+                            str(item.get("agent") or "")
+                        ),
+                        selected=bool(item.get("selected")),
+                        reason=str(item.get("reason") or "").strip(),
+                    )
+                )
+            except OrchestrationPolicyError as exc:
+                raise TaskPlanError(str(exc)) from exc
+
+        artifacts_raw = data.get("artifacts") or []
+        if not isinstance(artifacts_raw, list):
+            raise TaskPlanError("'artifacts' must be a list.")
+        artifacts: list[ArtifactRequest] = []
+        for item in artifacts_raw:
+            if not isinstance(item, dict):
+                raise TaskPlanError(
+                    "Each artifact request must be an object."
+                )
+            artifacts.append(
+                ArtifactRequest(
+                    kind=str(item.get("kind") or "").strip(),
+                    action=str(item.get("action") or "update").strip(),
+                )
+            )
+
+        request = str(data.get("request") or "").strip()
+        request_summary = str(
+            data.get("request_summary") or request
+        ).strip()
+
         plan = cls(
-            request=str(data.get("request") or "").strip(),
+            request=request,
             nodes=nodes,
             required_disabled_agents=required_disabled,
             notes=(
@@ -88,6 +172,20 @@ class TaskPlan:
                 if data.get("notes") is not None
                 else None
             ),
+            request_summary=request_summary,
+            request_class=str(
+                data.get("request_class") or "general"
+            ).strip(),
+            issue_reference=(
+                str(data.get("issue_reference")).strip()
+                if data.get("issue_reference") is not None
+                else None
+            ),
+            gates=gates,
+            forced_agents=forced_agents,
+            decisions=tuple(decisions),
+            artifacts=tuple(artifacts),
+            policy_version=int(data.get("policy_version") or 0),
         )
         plan.validate_structure()
         return plan
@@ -95,6 +193,14 @@ class TaskPlan:
     def validate_structure(self) -> None:
         if not self.request:
             raise TaskPlanError("Task plan request cannot be empty.")
+        if not self.request_summary:
+            raise TaskPlanError("Task plan request_summary cannot be empty.")
+        if len(self.request_summary) > 800:
+            raise TaskPlanError(
+                "Task plan request_summary must be concise (<= 800 chars)."
+            )
+        if not self.request_class:
+            raise TaskPlanError("Task plan request_class cannot be empty.")
 
         ids = [node.id for node in self.nodes]
         if any(not node_id for node_id in ids):
@@ -125,6 +231,33 @@ class TaskPlan:
                     )
 
         self._validate_acyclic(by_id)
+
+    def validate_policy(self, enabled_agents: Iterable[str]) -> None:
+        """Enforce M-028 participation gates for policy-v1 plans."""
+
+        if self.policy_version < 1:
+            return
+
+        try:
+            validate_plan_policy(
+                gates=self.gates,
+                forced_agents=self.forced_agents,
+                decisions=self.decisions,
+                planned_agents=(node.agent for node in self.nodes),
+                required_disabled_agents=self.required_disabled_agents,
+                enabled_agents=enabled_agents,
+            )
+        except OrchestrationPolicyError as exc:
+            raise TaskPlanError(str(exc)) from exc
+
+        if self.artifacts:
+            represented = {
+                node.agent for node in self.nodes
+            } | set(self.required_disabled_agents)
+            if "documentation" not in represented:
+                raise TaskPlanError(
+                    "Requested durable artifact(s) require Documentation."
+                )
 
     def missing_agents(
         self,
@@ -201,7 +334,7 @@ def build_planning_prompt(
 
     return f"""Planning-only operation. Do not hand off.
 
-Analyze the user request and return a task execution DAG as JSON only.
+Analyze the user request and return the MINIMUM SUFFICIENT task DAG as JSON only.
 
 User request:
 {request}
@@ -212,30 +345,64 @@ Enabled agent keys:
 Known but disabled agent keys:
 {", ".join(disabled) or "(none)"}
 
+Participation gates:
+- product_definition -> product
+- delivery_planning -> pmo
+- architecture_change -> architecture
+- ux_change -> ux_ui
+- backend_change -> backend
+- frontend_change -> frontend
+- database_change -> database
+- security_risk -> security
+- testing_required -> testing
+- review_required -> reviewer
+- durable_documentation -> documentation
+- devops_change -> devops
+- performance_concern -> performance
+- reliability_or_incident -> observability
+- data_change -> data
+
 Rules:
-- Use responsibilities, not technologies, to choose agents.
-- Never substitute a disabled specialist with another agent.
-- If a disabled specialist is required, add its key to
-  required_disabled_agents and do not assign its work to another role.
+- Activate ONLY gates justified by this request.
+- Each active gate maps to one specialist; each specialist gets at most one node.
+- Do not add Product, Architecture, Testing, Security, Reviewer, Documentation, or any other specialist by habit.
+- Testing is selected only when repeatable technical validation adds value.
+- Security is selected only for a real security/privacy/compliance risk surface.
+- Documentation is selected only for durable knowledge/artifacts or explicit user request.
+- Reviewer is selected only when independent technical review is justified by risk/scope.
+- forced_agents is only for an explicit user request to involve a named specialist outside the normal gate decision.
+- Every selected specialist requires a concise observable reason.
+- You may record plausible specialists considered but omitted with selected=false and a concise reason; do not enumerate irrelevant roles.
+- Never substitute a disabled specialist. If required, add it to required_disabled_agents and omit its node.
+- Each node objective must be self-contained because execution receives request_summary, not the full conversation.
 - Create independent branches when work can proceed independently.
 - Express ordering only through depends_on.
-- Prefer direct specialist-to-specialist flow when the dependency is clear.
-- Include testing and reviewer when technical changes require validation,
-  if those agents are enabled.
-- Include documentation for durable work when documentation is enabled.
 - Do not create a human-QA node; human QA happens after the DAG.
-- Keep nodes cohesive and avoid duplicate responsibility.
+- request_summary must be concise and exclude conversational noise.
+- artifacts contains only durable artifacts to create/update (for example functional_spec, technical_spec, adr, runbook). Any artifact requires Documentation.
+- policy_version must be 1.
 
 Return exactly this shape:
 {{
+  "policy_version": 1,
   "request": "...",
-  "required_disabled_agents": ["ux_ui"],
+  "request_summary": "...",
+  "request_class": "bug|feature|docs|incident|performance|deployment|other",
+  "issue_reference": null,
+  "gates": ["backend_change", "testing_required"],
+  "forced_agents": [],
+  "required_disabled_agents": [],
+  "decisions": [
+    {{"agent": "backend", "selected": true, "reason": "Changes server behavior."}},
+    {{"agent": "architecture", "selected": false, "reason": "No structural impact."}}
+  ],
+  "artifacts": [],
   "notes": "...",
   "nodes": [
     {{
-      "id": "architecture",
-      "agent": "architecture",
-      "objective": "...",
+      "id": "backend",
+      "agent": "backend",
+      "objective": "Implement the requested server behavior.",
       "depends_on": []
     }}
   ]
