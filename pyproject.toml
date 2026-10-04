@@ -18,8 +18,12 @@ agent-dev-kit = "agent_dev_kit.cli:main"
 openai = [
   "openai-agents"
 ]
+mcp = [
+  "mcp>=2,<3"
+]
 dev = [
-  "pytest>=8.3"
+  "pytest>=8.3",
+  "mcp>=2,<3"
 ]
 
 [tool.setuptools.packages.find]
