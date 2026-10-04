@@ -74,8 +74,10 @@ from .git_policy import (
     GitPolicyGuard,
     GitPolicyViolation,
     GitWorkflowConfig,
+    HumanAuthorization,
     git_workflow_from_mapping,
 )
+from .git_mutation import GitMutationGateway, GitMutationResult
 from .provider_errors import (
     ProviderAuthenticationError,
     ProviderError,
@@ -101,6 +103,9 @@ __all__ = [
     "GitPolicyGuard",
     "GitPolicyViolation",
     "GitWorkflowConfig",
+    "HumanAuthorization",
+    "GitMutationGateway",
+    "GitMutationResult",
     "git_workflow_from_mapping",
     "AGENT_GATE_GUIDANCE",
     "AgentGateDecision",

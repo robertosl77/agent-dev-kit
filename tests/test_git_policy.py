@@ -4,6 +4,7 @@ from agent_dev_kit.git_policy import (
     GitPolicyGuard,
     GitPolicyViolation,
     GitWorkflowConfig,
+    HumanAuthorization,
     git_workflow_from_mapping,
 )
 
@@ -32,11 +33,67 @@ def test_direct_write_to_development_is_blocked():
         guard().validate_direct_write("development")
 
 
-def test_explicit_human_override_can_allow_protected_write():
-    guard().validate_direct_write(
-        "main",
-        human_override=True,
+def test_legacy_boolean_override_is_not_supported():
+    with pytest.raises(TypeError):
+        guard().validate_direct_write(
+            "main",
+            human_override=True,
+        )
+
+
+def test_unverified_human_authorization_cannot_bypass_policy():
+    authorization = HumanAuthorization(
+        token="approval-1",
+        actor="human-owner",
+        scopes=("git:direct_write:main",),
+        reason="Emergency repair.",
     )
+
+    with pytest.raises(GitPolicyViolation, match="protected branch"):
+        guard().validate_direct_write(
+            "main",
+            authorization=authorization,
+        )
+
+
+def test_verified_scoped_human_authorization_can_allow_protected_write():
+    authorization = HumanAuthorization(
+        token="approval-1",
+        actor="human-owner",
+        scopes=("git:direct_write:main",),
+        reason="Emergency repair.",
+    )
+    guarded = GitPolicyGuard(
+        guard().config,
+        authorization_verifier=lambda auth, scope: (
+            auth.token == "approval-1"
+            and auth.actor == "human-owner"
+            and scope in auth.scopes
+        ),
+    )
+
+    guarded.validate_direct_write(
+        "main",
+        authorization=authorization,
+    )
+
+
+def test_human_authorization_is_scoped_to_specific_action():
+    authorization = HumanAuthorization(
+        token="approval-1",
+        actor="human-owner",
+        scopes=("git:direct_write:development",),
+    )
+    guarded = GitPolicyGuard(
+        guard().config,
+        authorization_verifier=lambda auth, scope: True,
+    )
+
+    with pytest.raises(GitPolicyViolation, match="protected branch"):
+        guarded.validate_direct_write(
+            "main",
+            authorization=authorization,
+        )
 
 
 def test_task_branch_must_start_from_development():

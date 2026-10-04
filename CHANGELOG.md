@@ -70,6 +70,9 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
 ### Git workflow
 
+- enforcement obligatorio de mutaciones Git soportadas mediante `GitMutationGateway`;
+- override humano reemplazado por autorización scoped + verificador externo;
+- registro explícito de tools Git mutantes con política `git_policy_guard`;
 - política Git configurable por proyecto consumidor;
 - `main`/producción y rama de integración separadas;
 - ramas de tarea obligatoriamente creadas desde integración;

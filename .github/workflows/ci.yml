@@ -12,6 +12,7 @@ on:
 
 jobs:
   test:
+    name: Agent Dev Kit CI / test
     runs-on: ubuntu-latest
 
     steps:

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
+
+from agent_dev_kit.git_mutation import GitMutationGateway
 
 
 @dataclass(slots=True)
@@ -9,10 +11,17 @@ class ToolHandle:
     provider: str
     key: str
     native: Any
+    effect: str = "opaque"
+    enforced_policy: str | None = None
 
 
 class ToolRegistry:
-    """Tools supplied by the consuming application at runtime."""
+    """Tools supplied by the consuming application at runtime.
+
+    Generic tools are opaque trusted extensions. Supported Git write tools must
+    be registered with register_git_mutation(), which constructs the provider
+    native tool around a GitMutationGateway.
+    """
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolHandle] = {}
@@ -32,6 +41,41 @@ class ToolRegistry:
             provider=provider.strip().lower(),
             key=normalized,
             native=native,
+        )
+        self._tools[normalized] = handle
+        return handle
+
+    def register_git_mutation(
+        self,
+        key: str,
+        *,
+        provider: str,
+        gateway: GitMutationGateway,
+        build_native: Callable[[GitMutationGateway], Any],
+    ) -> ToolHandle:
+        """Register a Git write tool whose implementation receives only the
+        policy-enforced mutation gateway.
+
+        This is the supported registration path for Git mutations. The native
+        provider adapter is built here so integrations do not need a raw Git
+        write callback exposed to the agent.
+        """
+
+        normalized = self.normalize_key(key)
+        if not normalized:
+            raise ValueError("Tool key cannot be empty.")
+        if not isinstance(gateway, GitMutationGateway):
+            raise TypeError(
+                "Git mutation tools require a GitMutationGateway."
+            )
+
+        native = build_native(gateway)
+        handle = ToolHandle(
+            provider=provider.strip().lower(),
+            key=normalized,
+            native=native,
+            effect="git_mutation",
+            enforced_policy="git_policy_guard",
         )
         self._tools[normalized] = handle
         return handle

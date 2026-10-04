@@ -185,3 +185,57 @@ La configuración concreta pertenece al consumidor.
 
 Agent Dev Kit define el mecanismo de enforcement; cada proyecto define los
 nombres de sus ramas y su workflow.
+
+
+## Enforcement de mutaciones Git
+
+Las integraciones Git soportadas no deben invocar escrituras externas
+directamente. Deben pasar por `GitMutationGateway`, que valida primero con
+`GitPolicyGuard` y sólo después ejecuta la operación externa.
+
+```text
+agente / tool
+    ↓
+GitMutationGateway
+    ↓
+GitPolicyGuard
+    ↓
+executor Git/GitHub
+    ↓
+Ruleset del proveedor
+```
+
+Para herramientas registradas mediante `ToolRegistry`, las mutaciones Git
+deben usar `register_git_mutation(...)`. Esa vía construye el tool nativo
+alrededor del gateway guardado y deja metadata `effect=git_mutation` y
+`enforced_policy=git_policy_guard`.
+
+Las herramientas externas genéricas registradas con `register(...)` son
+extensiones opacas de confianza. El framework no puede inspeccionar una callback
+arbitraria y descubrir si internamente hace escrituras Git; una integración que
+oculte efectos laterales fuera de la vía soportada queda fuera de la garantía.
+
+## Override humano verificable
+
+El booleano `human_override=True` dejó de ser válido.
+
+Una excepción requiere un `HumanAuthorization` con:
+
+- token opaco;
+- actor humano;
+- scope exacto de la acción;
+- razón opcional.
+
+Además, `GitPolicyGuard` requiere un `authorization_verifier` externo. Sin
+verificador, incluso un objeto `HumanAuthorization` bien formado es rechazado.
+
+Los scopes son específicos, por ejemplo:
+
+```text
+git:direct_write:main
+git:create_task_branch:feat/m-031-enforcement
+git:create_pull_request:release:development->main
+```
+
+Esto evita que un agente se autoautorice pasando un simple flag y evita reutilizar
+una aprobación para una acción distinta.
