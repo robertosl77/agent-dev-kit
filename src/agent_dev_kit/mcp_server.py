@@ -108,6 +108,19 @@ def build_mcp_server(
 
         return gateway.task_status(task_id)
 
+    @server.tool()
+    def agent_dev_kit_orchestration_proposals(
+        min_occurrences: int = 3,
+    ) -> dict[str, Any]:
+        """Inspect repeated trace signals and propose Issues for human review.
+
+        This never changes orchestration policy and never creates an Issue.
+        """
+
+        return gateway.orchestration_issue_proposals(
+            min_occurrences=min_occurrences,
+        )
+
     return server
 
 
