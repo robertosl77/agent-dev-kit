@@ -2,6 +2,15 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from agent_dev_kit.orchestration import (
+    AGENT_GATE_GUIDANCE,
+    AgentGateDecision,
+    OrchestrationTrace,
+    RequestProfile,
+    normalize_agent_key,
+    validate_gate_policy,
+)
+
 
 class TaskPlanError(ValueError):
     pass
@@ -32,6 +41,10 @@ class TaskPlan:
     nodes: list[TaskNode]
     required_disabled_agents: tuple[str, ...] = ()
     notes: str | None = None
+    profile: RequestProfile | None = None
+    agent_decisions: tuple[AgentGateDecision, ...] = ()
+    trace: OrchestrationTrace | None = None
+    decisions_explicit: bool = False
 
     @classmethod
     def from_json(cls, payload: str) -> "TaskPlan":
