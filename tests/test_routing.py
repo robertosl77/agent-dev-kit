@@ -25,3 +25,24 @@ def test_capability_graph_never_targets_disabled_agent():
 
     assert graph["triage"] == ("frontend",)
     assert "ux_ui" not in graph["frontend"]
+
+
+def test_cross_cutting_role_handoffs_are_explicit():
+    graph = build_enabled_capability_graph(
+        (
+            "product",
+            "security",
+            "observability",
+            "data",
+            "devops",
+            "architecture",
+            "pmo",
+        )
+    )
+
+    assert "security" in graph["product"]
+    assert "observability" in graph["product"]
+    assert "data" in graph["security"]
+    assert "observability" in graph["security"]
+    assert "architecture" in graph["devops"]
+    assert "pmo" in graph["observability"]
