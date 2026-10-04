@@ -39,32 +39,24 @@ class PlanningProvider(AgentProvider):
             return ProviderRunResult(
                 output="""{
                   "request": "Fix report",
+                  "profile": {
+                    "summary": "Fix report architecture and backend behavior.",
+                    "classification": "cross_layer_bug",
+                    "risk_flags": ["cross_layer", "backend_change", "behavior_regression"],
+                    "durable_artifacts": ["technical_spec"]
+                  },
+                  "agent_decisions": [
+                    {"agent": "architecture", "selected": true, "gate": "cross_layer", "reason": "Boundaries must be reviewed."},
+                    {"agent": "backend", "selected": true, "gate": "backend_change", "reason": "Server behavior changes."},
+                    {"agent": "testing", "selected": true, "gate": "behavior_regression", "reason": "Regression risk exists."},
+                    {"agent": "documentation", "selected": true, "gate": "durable_artifact", "reason": "Technical specification must be synchronized."}
+                  ],
                   "required_disabled_agents": [],
                   "nodes": [
-                    {
-                      "id": "architecture",
-                      "agent": "architecture",
-                      "objective": "Define boundaries",
-                      "depends_on": []
-                    },
-                    {
-                      "id": "backend",
-                      "agent": "backend",
-                      "objective": "Fix data",
-                      "depends_on": ["architecture"]
-                    },
-                    {
-                      "id": "testing",
-                      "agent": "testing",
-                      "objective": "Validate behavior",
-                      "depends_on": ["backend"]
-                    },
-                    {
-                      "id": "documentation",
-                      "agent": "documentation",
-                      "objective": "Document task evidence",
-                      "depends_on": ["testing"]
-                    }
+                    {"id": "architecture", "agent": "architecture", "phase": "design", "objective": "Define boundaries", "depends_on": []},
+                    {"id": "backend", "agent": "backend", "phase": "implementation", "objective": "Fix data", "depends_on": ["architecture"]},
+                    {"id": "testing", "agent": "testing", "phase": "validation", "objective": "Validate behavior", "depends_on": ["backend"]},
+                    {"id": "documentation", "agent": "documentation", "phase": "documentation", "objective": "Synchronize technical documentation", "depends_on": ["testing"]}
                   ]
                 }""",
                 active_agent=agent,
@@ -105,6 +97,9 @@ def test_triage_builds_dag_and_runtime_executes_dependencies():
     result = kit.execute_plan_sync(plan)
 
     assert result.is_complete
+    assert result.trace is not None
+    assert result.trace.status == "completed"
+    assert result.trace.model_calls == 5
     assert [
         (node.id, node.status)
         for node in result.nodes
@@ -125,6 +120,20 @@ def test_disabled_specialist_is_not_silently_replaced():
     plan = TaskPlan.from_json(
         """{
           "request": "Redesign screen",
+          "profile": {
+            "summary": "Redesign screen UX.",
+            "classification": "ux_change",
+            "risk_flags": ["ux_change"],
+            "durable_artifacts": []
+          },
+          "agent_decisions": [
+            {
+              "agent": "frontend",
+              "selected": false,
+              "gate": "frontend_change",
+              "reason": "UX definition is blocked first."
+            }
+          ],
           "required_disabled_agents": ["ux_ui"],
           "nodes": []
         }"""
