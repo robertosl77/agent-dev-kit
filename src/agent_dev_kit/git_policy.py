@@ -1,10 +1,37 @@
 from dataclasses import dataclass
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Protocol
 
 
 class GitPolicyViolation(RuntimeError):
     """Raised before a Git mutation that violates the configured workflow."""
+
+
+@dataclass(frozen=True, slots=True)
+class HumanAuthorization:
+    """Opaque, scoped authorization supplied by a trusted human-facing layer."""
+
+    token: str
+    actor: str
+    scopes: tuple[str, ...]
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.token.strip():
+            raise ValueError("HumanAuthorization.token cannot be empty.")
+        if not self.actor.strip():
+            raise ValueError("HumanAuthorization.actor cannot be empty.")
+        if not self.scopes:
+            raise ValueError("HumanAuthorization.scopes cannot be empty.")
+
+
+class HumanAuthorizationVerifier(Protocol):
+    def __call__(
+        self,
+        authorization: HumanAuthorization,
+        action_scope: str,
+    ) -> bool:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,8 +125,16 @@ class GitWorkflowConfig:
 class GitPolicyGuard:
     """Deterministic gate for Git mutations performed by integrations."""
 
-    def __init__(self, config: GitWorkflowConfig) -> None:
+    def __init__(
+        self,
+        config: GitWorkflowConfig,
+        *,
+        authorization_verifier: HumanAuthorizationVerifier
+        | Callable[[HumanAuthorization, str], bool]
+        | None = None,
+    ) -> None:
         self.config = config
+        self._authorization_verifier = authorization_verifier
         self._protected = {
             normalize_branch(item) for item in config.protected_branches
         }
@@ -108,11 +143,13 @@ class GitPolicyGuard:
         self,
         branch: str,
         *,
-        human_override: bool = False,
+        authorization: HumanAuthorization | None = None,
     ) -> None:
         normalized = normalize_branch(branch)
+        action_scope = self.direct_write_scope(branch)
         if normalized in self._protected and not self._override_allowed(
-            human_override
+            authorization,
+            action_scope,
         ):
             raise GitPolicyViolation(
                 f"Direct write to protected branch '{branch}' is forbidden. "
@@ -126,9 +163,10 @@ class GitPolicyGuard:
         base_branch: str,
         issue_reference: str | None = None,
         base_is_updated: bool = True,
-        human_override: bool = False,
+        authorization: HumanAuthorization | None = None,
     ) -> None:
-        if self._override_allowed(human_override):
+        action_scope = self.task_branch_scope(branch)
+        if self._override_allowed(authorization, action_scope):
             return
 
         if normalize_branch(branch) in self._protected:
@@ -165,9 +203,14 @@ class GitPolicyGuard:
         target_branch: str,
         purpose: str = "task",
         issue_reference: str | None = None,
-        human_override: bool = False,
+        authorization: HumanAuthorization | None = None,
     ) -> None:
-        if self._override_allowed(human_override):
+        action_scope = self.pull_request_scope(
+            source_branch=source_branch,
+            target_branch=target_branch,
+            purpose=purpose,
+        )
+        if self._override_allowed(authorization, action_scope):
             return
 
         purpose_key = purpose.strip().lower()
@@ -235,8 +278,47 @@ class GitPolicyGuard:
             ) from exc
         return rendered.strip("/")
 
-    def _override_allowed(self, requested: bool) -> bool:
-        return requested and self.config.allow_explicit_human_override
+    @staticmethod
+    def direct_write_scope(branch: str) -> str:
+        return f"git:direct_write:{normalize_branch(branch)}"
+
+    @staticmethod
+    def task_branch_scope(branch: str) -> str:
+        return f"git:create_task_branch:{normalize_branch(branch)}"
+
+    @staticmethod
+    def pull_request_scope(
+        *,
+        source_branch: str,
+        target_branch: str,
+        purpose: str,
+    ) -> str:
+        return (
+            "git:create_pull_request:"
+            f"{purpose.strip().lower()}:"
+            f"{normalize_branch(source_branch)}->"
+            f"{normalize_branch(target_branch)}"
+        )
+
+    def _override_allowed(
+        self,
+        authorization: HumanAuthorization | None,
+        action_scope: str,
+    ) -> bool:
+        if not self.config.allow_explicit_human_override:
+            return False
+        if authorization is None:
+            return False
+        if action_scope not in authorization.scopes:
+            return False
+        if self._authorization_verifier is None:
+            return False
+        return bool(
+            self._authorization_verifier(
+                authorization,
+                action_scope,
+            )
+        )
 
 
 def git_workflow_from_mapping(data: Mapping[str, Any] | None) -> GitWorkflowConfig:
