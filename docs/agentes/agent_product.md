@@ -33,3 +33,23 @@ No define la arquitectura técnica ni implementa features. Cuando el producto ya
 ## Herramientas típicas
 
 Documentación de discovery, requisitos, decisiones de negocio, Issues y artefactos funcionales del proyecto.
+
+
+## Business analysis y requisitos no funcionales
+
+Product también concentra business analysis/product discovery cuando no existe un
+rol separado:
+
+- stakeholders y necesidades;
+- reglas de negocio;
+- requisitos funcionales;
+- requisitos no funcionales;
+- restricciones de accesibilidad, privacidad/compliance, seguridad,
+  reliability y operabilidad cuando forman parte del producto.
+
+Product define la necesidad o restricción, no el control técnico. Deriva:
+
+- accesibilidad → UX/UI;
+- seguridad/privacy/compliance técnico → Security;
+- reliability/operabilidad → Observability/DevOps;
+- estructura técnica → Architecture.
