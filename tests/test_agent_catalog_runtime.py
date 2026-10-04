@@ -1,0 +1,100 @@
+from agent_dev_kit.agent_catalog import (
+    build_enabled_definitions,
+    create_enabled_agents,
+    is_agent_enabled,
+)
+from agent_dev_kit.project_config import (
+    ContextualAgentConfig,
+    ProjectAgentDevKitConfig,
+)
+from agent_dev_kit.provider_config import ProviderConfig
+from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider
+
+
+class FakeProvider(AgentProvider):
+    key = "fake"
+
+    def __init__(self):
+        self.created = []
+
+    def create_agent(self, definition, *, handoffs=()):
+        self.created.append(
+            (definition.name, tuple(item.name for item in handoffs))
+        )
+        return AgentHandle(
+            provider=self.key,
+            name=definition.name,
+            native=definition,
+        )
+
+    async def run(self, agent, message, *, session=None):
+        raise NotImplementedError
+
+    def run_sync(self, agent, message, *, session=None):
+        raise NotImplementedError
+
+
+def make_config(enabled, agents=None):
+    return ProjectAgentDevKitConfig(
+        name="Example",
+        stack={},
+        provider=ProviderConfig(provider="fake"),
+        enabled_agents=tuple(enabled),
+        agents=agents or {},
+    )
+
+
+def test_only_enabled_agents_are_built():
+    config = make_config(("pmo", "testing"))
+
+    definitions = build_enabled_definitions(config)
+
+    assert set(definitions) == {"pmo", "testing"}
+    assert is_agent_enabled(config, "pmo")
+    assert not is_agent_enabled(config, "security")
+
+
+def test_only_enabled_agents_are_instantiated_and_triage_sees_only_them():
+    config = make_config(("pmo", "testing", "triage"))
+    provider = FakeProvider()
+
+    handles = create_enabled_agents(provider, config)
+
+    assert set(handles) == {"pmo", "testing", "triage"}
+    assert provider.created == [
+        ("Agent PMO", ()),
+        ("Agent Testing", ()),
+        ("Agent Triage", ("Agent PMO", "Agent Testing")),
+    ]
+
+
+def test_contextual_instructions_apply_only_to_enabled_agent():
+    config = make_config(
+        ("pmo",),
+        agents={
+            "pmo": ContextualAgentConfig(
+                key="pmo",
+                extra_instructions=("Regla local PMO.",),
+            ),
+            "security": ContextualAgentConfig(
+                key="security",
+                extra_instructions=("Regla local Security.",),
+            ),
+        },
+    )
+
+    definitions = build_enabled_definitions(config)
+
+    assert "Regla local PMO." in definitions["pmo"].instructions
+    assert "security" not in definitions
+
+
+def test_unknown_enabled_agent_fails_explicitly():
+    config = make_config(("backend", "super_agent"))
+
+    try:
+        build_enabled_definitions(config)
+    except ValueError as exc:
+        assert "super_agent" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
