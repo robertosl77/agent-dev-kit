@@ -30,3 +30,17 @@ La conversación comienza en Triage cuando está habilitado. Después del handof
 ## Herramientas típicas
 
 Catálogo de agentes, configuración del proyecto y contexto de conversación. Normalmente no necesita herramientas de implementación.
+
+
+## Support e incident intake
+
+Triage puede recibir reportes de soporte o incidentes de producción, pero sólo
+clasifica y enruta:
+
+- diagnóstico/runtime → Observability;
+- recovery/deployment → DevOps;
+- defecto de código → especialista técnico;
+- seguridad → Security;
+- seguimiento durable → PMO.
+
+No se convierte en mesa de ayuda ni realiza diagnóstico especializado.
