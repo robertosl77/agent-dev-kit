@@ -226,3 +226,102 @@ agents:
     assert config.git_workflow.integration_branch == "development"
     assert config.git_workflow.task_branch_base == "development"
     assert config.git_workflow.task_pr_target == "development"
+
+
+def test_documentation_templates_and_trace_config_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+documentation:
+  templates:
+    functional_spec: docs/templates/functional.md
+    technical_spec: docs/templates/technical.md
+
+orchestration:
+  trace:
+    path: .agent-dev-kit/runtime/orchestration.jsonl
+    retain_request_text: false
+    propose_issues: true
+
+agents:
+  enabled:
+    - documentation
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.documentation.templates["functional_spec"] == (
+        "docs/templates/functional.md"
+    )
+    assert config.documentation.templates["technical_spec"] == (
+        "docs/templates/technical.md"
+    )
+    assert config.orchestration.trace.path == (
+        ".agent-dev-kit/runtime/orchestration.jsonl"
+    )
+    assert config.orchestration.trace.retain_request_text is False
+    assert config.orchestration.trace.propose_issues is True
+    assert config.project_root == tmp_path.resolve()
+
+
+def test_documentation_template_loader_stays_inside_project_root(tmp_path):
+    from agent_dev_kit.project_config import load_documentation_template
+
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+documentation:
+  templates:
+    functional_spec: docs/templates/functional.md
+agents:
+  enabled:
+    - documentation
+""",
+    )
+    write(
+        tmp_path / "docs" / "templates" / "functional.md",
+        "# Functional template",
+    )
+
+    config = load_project_config(tmp_path)
+    relative, content = load_documentation_template(
+        config,
+        "functional_spec",
+    )
+
+    assert relative == "docs/templates/functional.md"
+    assert content == "# Functional template"
+
+
+def test_documentation_template_loader_rejects_path_escape(tmp_path):
+    from agent_dev_kit.project_config import load_documentation_template
+
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+documentation:
+  templates:
+    functional_spec: ../outside.md
+agents:
+  enabled:
+    - documentation
+""",
+    )
+    write(tmp_path.parent / "outside.md", "outside")
+
+    config = load_project_config(tmp_path)
+
+    try:
+        load_documentation_template(config, "functional_spec")
+    except ValueError as exc:
+        assert "escapes the project root" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
