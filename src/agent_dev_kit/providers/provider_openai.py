@@ -1,6 +1,7 @@
 from typing import Any, Sequence
 
 from agent_dev_kit.agent_definition import AgentDefinition
+from agent_dev_kit.tooling import ToolHandle
 from agent_dev_kit.providers.provider_base import (
     AgentHandle,
     AgentProvider,
@@ -33,8 +34,10 @@ class OpenAIProvider(AgentProvider):
         definition: AgentDefinition,
         *,
         handoffs: Sequence[AgentHandle] = (),
+        tools: Sequence[ToolHandle] = (),
     ) -> AgentHandle:
         self._validate_handoffs(handoffs)
+        self._validate_tools(tools)
 
         kwargs: dict[str, Any] = {
             "name": definition.name,
@@ -47,6 +50,8 @@ class OpenAIProvider(AgentProvider):
             kwargs["model"] = definition.model
         if handoffs:
             kwargs["handoffs"] = [item.native for item in handoffs]
+        if tools:
+            kwargs["tools"] = [item.native for item in tools]
 
         native = self._agent_class(**kwargs)
         return AgentHandle(
