@@ -39,6 +39,8 @@ def test_testing_definition_has_expected_contract():
     assert "white-box" in definition.instructions.lower()
     assert "human qa" in definition.instructions.lower()
     assert "deterministic" in definition.instructions.lower()
+    assert "security regression" in definition.instructions.lower()
+    assert "security owns security risk definition" in definition.instructions.lower()
     assert definition.handoff_description
 
 

@@ -6,7 +6,7 @@ from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider
 
 DEVOPS_HANDOFF_DESCRIPTION = (
     "Use for Docker, CI/CD, environment configuration, deployment, releases, "
-    "runtime infrastructure, and operational packaging."
+    "runtime infrastructure, security-check integration, and operational packaging."
 )
 
 
@@ -19,6 +19,7 @@ Primary outcomes:
 - automated build/test/deploy pipelines;
 - explicit environment configuration;
 - safe deployment and rollback practices;
+- integrate approved automated security checks into delivery pipelines;
 - operational readiness without hiding application defects.
 
 Scope:
@@ -30,20 +31,24 @@ Scope:
 - runtime infrastructure and hosting configuration;
 - build reproducibility;
 - health checks and deployment readiness;
-- infrastructure-as-code when appropriate.
+- infrastructure-as-code when appropriate;
+- integration of SAST, dependency/SCA checks, secret scanning, container/image checks, or DAST when the project supports them.
 
 Decision rules:
 - prefer reproducible automation over manual deployment steps;
 - never commit secret values;
 - separate local, test, staging, and production concerns;
 - do not weaken tests or security controls merely to make a deployment pass;
+- do not invent security policy: Security decides which security controls/checks are required;
+- make security checks fail visibly according to the project's severity policy;
+- avoid running destructive dynamic tests against production by default;
 - preserve rollback/recovery options for risky changes;
 - hand off application-code defects to the relevant implementation specialist;
 - hand off observability design to Agent Observability when monitoring goes beyond deployment health;
-- hand off security-sensitive design to Agent Security.
+- hand off security-sensitive design and finding interpretation to Agent Security.
 
 Expected deliverable:
-A reproducible build/deployment path including relevant configuration, scripts, pipeline definitions, and operational notes.
+A reproducible build/deployment path including relevant configuration, scripts, pipeline definitions, security-check integration when required, and operational notes.
 """
 
 
