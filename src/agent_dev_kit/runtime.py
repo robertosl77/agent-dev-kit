@@ -87,12 +87,25 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
         )
+        started = perf_counter()
         result = self.provider.run_sync(
             self.agents["triage"],
             prompt,
             session=session,
         )
-        return TaskPlan.from_json(result.output)
+        planning_ms = (perf_counter() - started) * 1000
+        plan = TaskPlan.from_json(
+            result.output,
+            require_agent_decisions=True,
+        )
+        plan.request = request
+        plan.validate_orchestration_policy(self.agents.keys())
+        plan.trace = self._build_trace(
+            plan,
+            request=request,
+            planning_ms=planning_ms,
+        )
+        return plan
 
     async def plan_task(
         self,
@@ -112,12 +125,25 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
         )
+        started = perf_counter()
         result = await self.provider.run(
             self.agents["triage"],
             prompt,
             session=session,
         )
-        return TaskPlan.from_json(result.output)
+        planning_ms = (perf_counter() - started) * 1000
+        plan = TaskPlan.from_json(
+            result.output,
+            require_agent_decisions=True,
+        )
+        plan.request = request
+        plan.validate_orchestration_policy(self.agents.keys())
+        plan.trace = self._build_trace(
+            plan,
+            request=request,
+            planning_ms=planning_ms,
+        )
+        return plan
 
     def execute_plan_sync(
         self,
