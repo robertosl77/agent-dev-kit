@@ -37,6 +37,22 @@ class AgentProvider(ABC):
     ) -> AgentHandle:
         raise NotImplementedError
 
+    def set_handoffs(
+        self,
+        agent: AgentHandle,
+        handoffs: Sequence[AgentHandle],
+    ) -> None:
+        """Configure handoffs after agent creation.
+
+        Providers that support mutable routing graphs should override this.
+        """
+
+        self._validate_handle(agent)
+        self._validate_handoffs(handoffs)
+        raise NotImplementedError(
+            f"Provider '{self.key}' does not support post-creation handoffs."
+        )
+
     @abstractmethod
     async def run(
         self,
