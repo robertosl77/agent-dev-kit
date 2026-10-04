@@ -33,6 +33,14 @@ def test_direct_write_to_development_is_blocked():
         guard().validate_direct_write("development")
 
 
+def test_legacy_boolean_override_is_not_supported():
+    with pytest.raises(TypeError):
+        guard().validate_direct_write(
+            "main",
+            human_override=True,
+        )
+
+
 def test_unverified_human_authorization_cannot_bypass_policy():
     authorization = HumanAuthorization(
         token="approval-1",
