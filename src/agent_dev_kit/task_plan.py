@@ -35,8 +35,17 @@ class TaskPlan:
 
     @classmethod
     def from_json(cls, payload: str) -> "TaskPlan":
+        cleaned = payload.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+
         try:
-            data = json.loads(payload)
+            data = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise TaskPlanError("Triage did not return valid JSON.") from exc
 
