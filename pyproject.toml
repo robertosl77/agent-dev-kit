@@ -11,6 +11,9 @@ dependencies = [
   "PyYAML>=6.0,<7",
 ]
 
+[project.scripts]
+agent-dev-kit = "agent_dev_kit.cli:main"
+
 [project.optional-dependencies]
 openai = [
   "openai-agents"
