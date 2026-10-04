@@ -47,7 +47,12 @@ class TaskPlan:
     decisions_explicit: bool = False
 
     @classmethod
-    def from_json(cls, payload: str) -> "TaskPlan":
+    def from_json(
+        cls,
+        payload: str,
+        *,
+        require_agent_decisions: bool = False,
+    ) -> "TaskPlan":
         cleaned = payload.strip()
         if cleaned.startswith("```"):
             lines = cleaned.splitlines()
@@ -111,6 +116,11 @@ class TaskPlan:
 
         raw_decisions = data.get("agent_decisions")
         decisions_explicit = raw_decisions is not None
+        if require_agent_decisions and not decisions_explicit:
+            raise TaskPlanError(
+                "Triage must return explicit agent_decisions for "
+                "orchestrated tasks."
+            )
         raw_decisions = raw_decisions or []
         if not isinstance(raw_decisions, list):
             raise TaskPlanError("'agent_decisions' must be a list.")
