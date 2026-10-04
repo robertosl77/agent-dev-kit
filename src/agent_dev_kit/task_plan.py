@@ -87,13 +87,65 @@ class TaskPlan:
                 )
             )
 
+        request = str(data.get("request") or "").strip()
+
+        profile_data = data.get("profile") or {}
+        if not isinstance(profile_data, dict):
+            raise TaskPlanError("'profile' must be an object.")
+        profile = RequestProfile(
+            summary=str(profile_data.get("summary") or request).strip(),
+            classification=str(
+                profile_data.get("classification") or "unspecified"
+            ).strip(),
+            risk_flags=tuple(
+                normalize_gate_key(str(value))
+                for value in (profile_data.get("risk_flags") or [])
+                if str(value).strip()
+            ),
+            durable_artifacts=tuple(
+                normalize_gate_key(str(value))
+                for value in (profile_data.get("durable_artifacts") or [])
+                if str(value).strip()
+            ),
+        )
+
+        raw_decisions = data.get("agent_decisions")
+        decisions_explicit = raw_decisions is not None
+        raw_decisions = raw_decisions or []
+        if not isinstance(raw_decisions, list):
+            raise TaskPlanError("'agent_decisions' must be a list.")
+
+        decisions: list[AgentGateDecision] = []
+        for item in raw_decisions:
+            if not isinstance(item, dict):
+                raise TaskPlanError(
+                    "Each agent decision must be an object."
+                )
+            agent = normalize_agent_key(str(item.get("agent") or ""))
+            reason = str(item.get("reason") or "").strip()
+            gate = normalize_gate_key(
+                str(item.get("gate") or "responsibility")
+            )
+            if not agent or not reason:
+                raise TaskPlanError(
+                    "Each agent decision requires agent and reason."
+                )
+            decisions.append(
+                AgentGateDecision(
+                    agent=agent,
+                    selected=bool(item.get("selected")),
+                    gate=gate,
+                    reason=reason,
+                )
+            )
+
         required_disabled = tuple(
             normalize_agent_key(str(value))
             for value in (data.get("required_disabled_agents") or [])
         )
 
         plan = cls(
-            request=str(data.get("request") or "").strip(),
+            request=request,
             nodes=nodes,
             required_disabled_agents=required_disabled,
             notes=(
@@ -101,6 +153,9 @@ class TaskPlan:
                 if data.get("notes") is not None
                 else None
             ),
+            profile=profile,
+            agent_decisions=tuple(decisions),
+            decisions_explicit=decisions_explicit,
         )
         plan.validate_structure()
         return plan
