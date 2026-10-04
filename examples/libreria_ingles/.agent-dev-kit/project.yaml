@@ -17,6 +17,7 @@ provider:
 
 agents:
   enabled:
+    - triage
     - pmo
     - architecture
     - ux_ui
