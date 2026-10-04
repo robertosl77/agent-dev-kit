@@ -145,6 +145,7 @@ agents:
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Smoke test pre-versionado](docs/smoke_test.md)
 - [Interfaz MCP para clientes de chat](docs/interfaz_mcp.md)
+- [Distribución y versionado](docs/distribucion_versionado.md)
 - [Proveedores](docs/proveedores.md)
 - [Documentación individual de agentes](docs/agentes/)
 
@@ -208,3 +209,16 @@ agent-dev-kit mcp . --transport streamable-http
 
 El servidor queda vinculado al proyecto indicado al arrancar y no acepta
 rutas de repositorio desde las herramientas.
+
+
+## Instalación versionada
+
+Una vez creado el tag `v0.1.0`, un consumidor puede fijar exactamente esa
+versión:
+
+```bash
+python -m pip install \
+  "agent-dev-kit[openai,mcp] @ git+https://github.com/robertosl77/agent-dev-kit.git@v0.1.0"
+```
+
+No se recomienda consumir `main` como dependencia estable.
