@@ -15,6 +15,7 @@ from agent_dev_kit.orchestration_policy import AgentDecision
 class TraceCall:
     stage: str
     agent: str
+    phase: str
     provider: str
     duration_ms: int
     context_chars: int
@@ -28,6 +29,7 @@ class TraceCall:
         return {
             "stage": self.stage,
             "agent": self.agent,
+            "phase": self.phase,
             "provider": self.provider,
             "duration_ms": self.duration_ms,
             "context_chars": self.context_chars,
@@ -98,15 +100,16 @@ class OrchestrationTrace:
 
     @property
     def revisits(self) -> int:
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()
         repeated = 0
         for call in self.calls:
             if call.stage != "execution":
                 continue
-            if call.agent in seen:
+            key = (call.agent, call.phase)
+            if key in seen:
                 repeated += 1
             else:
-                seen.add(call.agent)
+                seen.add(key)
         return repeated
 
     @property
@@ -131,6 +134,7 @@ class OrchestrationTrace:
         agent: str,
         provider: str,
         duration_ms: int,
+        phase: str = "work",
         context_chars: int,
         native_result: Any | None = None,
         status: str = "completed",
@@ -141,6 +145,7 @@ class OrchestrationTrace:
             TraceCall(
                 stage=stage,
                 agent=agent,
+                phase=phase,
                 provider=provider,
                 duration_ms=max(0, int(duration_ms)),
                 context_chars=max(0, int(context_chars)),
