@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from agent_dev_kit.agent_catalog import AVAILABLE_AGENT_KEYS, create_enabled_agents
@@ -6,6 +7,11 @@ from agent_dev_kit.project_config import ProjectAgentDevKitConfig
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 from agent_dev_kit.tooling import ToolRegistry
 from agent_dev_kit.preferences import PreferenceProfile
+from agent_dev_kit.orchestration import (
+    OrchestrationTrace,
+    OrchestrationTraceStore,
+    fingerprint_request,
+)
 from agent_dev_kit.task_plan import (
     TaskNode,
     TaskPlan,
@@ -21,6 +27,7 @@ class DevAgentKit:
     config: ProjectAgentDevKitConfig
     provider: AgentProvider
     agents: dict[str, AgentHandle]
+    trace_store: OrchestrationTraceStore | None = None
 
     @classmethod
     def build(
@@ -31,6 +38,13 @@ class DevAgentKit:
         tool_registry: ToolRegistry | None = None,
         preference_profile: PreferenceProfile | None = None,
     ) -> "DevAgentKit":
+        trace_store = None
+        if config.orchestration.trace_enabled and config.project_root is not None:
+            trace_path = (
+                config.project_root / config.orchestration.trace_path
+            )
+            trace_store = OrchestrationTraceStore(trace_path)
+
         return cls(
             config=config,
             provider=provider,
@@ -40,6 +54,7 @@ class DevAgentKit:
                 tool_registry=tool_registry,
                 preference_profile=preference_profile,
             ),
+            trace_store=trace_store,
         )
 
     def conversation(
