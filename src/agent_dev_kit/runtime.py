@@ -87,6 +87,7 @@ class DevAgentKit:
             request,
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
+            project_policies=self.config.orchestration.policies,
         )
         started = perf_counter()
         result = self.provider.run_sync(
@@ -100,7 +101,11 @@ class DevAgentKit:
             require_agent_decisions=True,
         )
         plan.request = request
-        plan.validate_orchestration_policy(self.agents.keys())
+        plan.validate_orchestration_policy(
+            self.agents.keys(),
+            request=plan.request,
+            project_policies=self.config.orchestration.policies,
+        )
         plan.trace = self._build_trace(
             plan,
             request=request,
@@ -125,6 +130,7 @@ class DevAgentKit:
             request,
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
+            project_policies=self.config.orchestration.policies,
         )
         started = perf_counter()
         result = await self.provider.run(
@@ -138,7 +144,11 @@ class DevAgentKit:
             require_agent_decisions=True,
         )
         plan.request = request
-        plan.validate_orchestration_policy(self.agents.keys())
+        plan.validate_orchestration_policy(
+            self.agents.keys(),
+            request=plan.request,
+            project_policies=self.config.orchestration.policies,
+        )
         plan.trace = self._build_trace(
             plan,
             request=request,
@@ -155,7 +165,11 @@ class DevAgentKit:
         """Execute ready DAG nodes sequentially while respecting dependencies."""
 
         plan.validate_structure()
-        plan.validate_orchestration_policy(self.agents.keys())
+        plan.validate_orchestration_policy(
+            self.agents.keys(),
+            request=plan.request,
+            project_policies=self.config.orchestration.policies,
+        )
         plan.validate_enabled(self.agents.keys())
         if plan.trace is not None:
             plan.trace.status = "executing"
@@ -182,7 +196,11 @@ class DevAgentKit:
         """Async provider execution with deterministic DAG sequencing."""
 
         plan.validate_structure()
-        plan.validate_orchestration_policy(self.agents.keys())
+        plan.validate_orchestration_policy(
+            self.agents.keys(),
+            request=plan.request,
+            project_policies=self.config.orchestration.policies,
+        )
         plan.validate_enabled(self.agents.keys())
         if plan.trace is not None:
             plan.trace.status = "executing"
@@ -374,6 +392,8 @@ class DevAgentKit:
                 for node in plan.nodes
             ),
             routing_fingerprint=fingerprint_routing(profile),
+            independent_risk_flags=plan.independent_risk_flags,
+            policy_activations=plan.policy_activations,
             full_request=(
                 request
                 if self.config.orchestration.persist_full_request

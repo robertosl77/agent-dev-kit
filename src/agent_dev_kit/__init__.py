@@ -58,6 +58,14 @@ from .provider_registry import ProviderRegistry, build_default_registry
 from .execution import ProviderRuntime
 from .gateway import AgentDevKitGateway
 from .mcp_server import build_mcp_server, run_mcp_server
+from .orchestration_policy import (
+    DurableArtifact,
+    PolicyEvaluation,
+    ProjectRoutingPolicy,
+    RiskFlag,
+    TaskPhase,
+    preclassify_request,
+)
 from .orchestration import (
     AGENT_GATE_GUIDANCE,
     AgentGateDecision,
@@ -108,6 +116,12 @@ __all__ = [
     "GitMutationResult",
     "git_workflow_from_mapping",
     "AGENT_GATE_GUIDANCE",
+    "RiskFlag",
+    "TaskPhase",
+    "DurableArtifact",
+    "ProjectRoutingPolicy",
+    "PolicyEvaluation",
+    "preclassify_request",
     "AgentGateDecision",
     "OrchestrationConfig",
     "OrchestrationImprovementCandidate",

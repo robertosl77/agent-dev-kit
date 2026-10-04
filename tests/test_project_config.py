@@ -262,3 +262,64 @@ agents:
         == ".agent-dev-kit/templates/functional.md"
     )
     assert config.project_root == tmp_path
+
+
+def test_project_orchestration_policies_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  policies:
+    - id: auth_requires_review
+      when:
+        any_risk_flags:
+          - auth_change
+      require_agents:
+        - reviewer
+
+agents:
+  enabled:
+    - triage
+    - security
+    - reviewer
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert len(config.orchestration.policies) == 1
+    assert config.orchestration.policies[0].id == "auth_requires_review"
+    assert config.orchestration.policies[0].require_agents == ("reviewer",)
+
+
+def test_project_orchestration_policy_schema_is_validated(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  policies:
+    - id: invalid_policy
+      when:
+        any_risk_flags:
+          - auth_change
+      require_agents:
+        - imaginary_agent
+
+agents:
+  enabled:
+    - triage
+""",
+    )
+
+    try:
+        load_project_config(tmp_path)
+    except ValueError as exc:
+        assert "imaginary_agent" in str(exc)
+    else:
+        raise AssertionError("Expected policy schema validation failure")

@@ -2,6 +2,14 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from agent_dev_kit.orchestration_policy import (
+    ProjectRoutingPolicy,
+    coerce_durable_artifact,
+    coerce_risk_flag,
+    coerce_task_phase,
+    evaluate_project_policies,
+    preclassify_request,
+)
 from agent_dev_kit.orchestration import (
     AGENT_GATE_GUIDANCE,
     AgentGateDecision,
@@ -46,6 +54,9 @@ class TaskPlan:
     agent_decisions: tuple[AgentGateDecision, ...] = ()
     trace: OrchestrationTrace | None = None
     decisions_explicit: bool = False
+    independent_risk_flags: tuple[str, ...] = ()
+    policy_activations: tuple[str, ...] = ()
+    policy_required_agents: tuple[str, ...] = ()
 
     @classmethod
     def from_json(
@@ -86,8 +97,9 @@ class TaskPlan:
                         str(item.get("agent") or "")
                     ),
                     objective=str(item.get("objective") or "").strip(),
-                    phase=normalize_gate_key(
-                        str(item.get("phase") or "implementation")
+                    phase=_coerce_contract(
+                        coerce_task_phase,
+                        str(item.get("phase") or "implementation"),
                     ),
                     depends_on=tuple(
                         str(value).strip()
@@ -107,12 +119,12 @@ class TaskPlan:
                 profile_data.get("classification") or "unspecified"
             ).strip(),
             risk_flags=tuple(
-                normalize_gate_key(str(value))
+                _coerce_contract(coerce_risk_flag, str(value))
                 for value in (profile_data.get("risk_flags") or [])
                 if str(value).strip()
             ),
             durable_artifacts=tuple(
-                normalize_gate_key(str(value))
+                _coerce_contract(coerce_durable_artifact, str(value))
                 for value in (profile_data.get("durable_artifacts") or [])
                 if str(value).strip()
             ),
@@ -241,11 +253,38 @@ class TaskPlan:
     def validate_orchestration_policy(
         self,
         enabled_agents: Iterable[str],
+        *,
+        request: str | None = None,
+        project_policies: Iterable[ProjectRoutingPolicy] = (),
     ) -> None:
         if not self.decisions_explicit:
             raise TaskPlanError(
                 "Orchestrated plans require explicit gate decisions."
             )
+
+        if self.profile is None:
+            raise TaskPlanError("Task profile is required.")
+
+        independent = preclassify_request(request or self.request)
+        merged_risks = tuple(
+            dict.fromkeys((*self.profile.risk_flags, *independent))
+        )
+        self.independent_risk_flags = independent
+        if merged_risks != self.profile.risk_flags:
+            self.profile = RequestProfile(
+                summary=self.profile.summary,
+                classification=self.profile.classification,
+                risk_flags=merged_risks,
+                durable_artifacts=self.profile.durable_artifacts,
+            )
+
+        policies = tuple(project_policies)
+        evaluation = evaluate_project_policies(
+            self.profile.risk_flags,
+            policies,
+        )
+        self.policy_activations = evaluation.activated_policy_ids
+        self.policy_required_agents = evaluation.required_agents
 
         enabled = tuple(
             normalize_agent_key(item) for item in enabled_agents
@@ -268,6 +307,25 @@ class TaskPlan:
             )
         except ValueError as exc:
             raise TaskPlanError(str(exc)) from exc
+
+        by_agent = {item.agent: item for item in self.agent_decisions}
+        required_disabled = set(self.required_disabled_agents)
+        for agent in self.policy_required_agents:
+            if agent not in enabled:
+                if agent not in required_disabled:
+                    raise TaskPlanError(
+                        "Activated project policy requires disabled agent "
+                        f"'{agent}', which must be declared in "
+                        "required_disabled_agents."
+                    )
+                continue
+            decision = by_agent.get(agent)
+            if decision is None or not decision.selected:
+                policies_text = ", ".join(self.policy_activations)
+                raise TaskPlanError(
+                    f"Activated project policy ({policies_text}) requires "
+                    f"selected agent '{agent}'."
+                )
 
     def missing_agents(
         self,
@@ -328,6 +386,13 @@ class TaskPlan:
             visit(node_id)
 
 
+def _coerce_contract(coercer, value: str) -> str:
+    try:
+        return coercer(value)
+    except ValueError as exc:
+        raise TaskPlanError(str(exc)) from exc
+
+
 def normalize_gate_key(value: str) -> str:
     return (
         value.strip()
@@ -343,6 +408,7 @@ def build_planning_prompt(
     *,
     enabled_agents: Iterable[str],
     available_agents: Iterable[str],
+    project_policies: Iterable[ProjectRoutingPolicy] = (),
 ) -> str:
     enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
     available = tuple(normalize_agent_key(item) for item in available_agents)
@@ -352,6 +418,17 @@ def build_planning_prompt(
     gate_lines = "\n".join(
         f"- {agent}: {AGENT_GATE_GUIDANCE.get(agent, 'Use only when materially required.')}"
         for agent in specialists
+    )
+    policy_lines = "\n".join(
+        "- "
+        + policy.id
+        + ": any_risk_flags="
+        + ",".join(policy.any_risk_flags)
+        + "; all_risk_flags="
+        + ",".join(policy.all_risk_flags)
+        + "; require_agents="
+        + ",".join(policy.require_agents)
+        for policy in project_policies
     )
 
     return f"""Planning-only operation. Do not hand off.
@@ -372,6 +449,9 @@ Known but disabled agent keys:
 Gate policy for enabled specialists:
 {gate_lines or "(none)"}
 
+Deterministic project policies (enforced independently after planning):
+{policy_lines or "(none)"}
+
 Rules:
 - Use responsibilities, not technologies, to choose agents.
 - Return one explicit selected/omitted decision for EVERY enabled specialist
@@ -384,8 +464,13 @@ Rules:
   functional_ambiguity, backlog_coordination, cross_layer, ux_change,
   backend_change, frontend_change, persistence_change, security_surface,
   behavior_regression, technical_review, deployment_change,
-  performance_risk, runtime_reliability, analytics_data.
+  performance_risk, runtime_reliability, analytics_data, auth_change,
+  schema_change, public_api_change, sensitive_data.
 - A declared risk flag requires its responsible enabled specialist.
+- Critical risks are also preclassified deterministically after Triage; omitting
+  them here cannot bypass their required specialists.
+- Matching project policies can only add required specialists. If one is
+  disabled, declare it in required_disabled_agents.
 - Durable artifact names: functional_spec, technical_spec, adr, runbook,
   release_notes, project_docs.
 - Any durable artifact requires Documentation when enabled.

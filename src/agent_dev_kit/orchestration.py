@@ -6,6 +6,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from agent_dev_kit.orchestration_policy import (
+    ARTIFACT_REQUIRED_AGENTS,
+    RISK_REQUIRED_AGENTS,
+    ProjectRoutingPolicy,
+    project_policies_from_mapping,
+    validate_profile_contracts,
+)
+
 
 AGENT_GATE_GUIDANCE: dict[str, str] = {
     "product": (
@@ -76,28 +84,12 @@ AGENT_GATE_GUIDANCE: dict[str, str] = {
 
 
 RISK_REQUIRED_AGENT: dict[str, str] = {
-    "functional_ambiguity": "product",
-    "backlog_coordination": "pmo",
-    "cross_layer": "architecture",
-    "ux_change": "ux_ui",
-    "backend_change": "backend",
-    "frontend_change": "frontend",
-    "persistence_change": "database",
-    "security_surface": "security",
-    "behavior_regression": "testing",
-    "technical_review": "reviewer",
-    "deployment_change": "devops",
-    "performance_risk": "performance",
-    "runtime_reliability": "observability",
-    "analytics_data": "data",
+    risk: agents[0] for risk, agents in RISK_REQUIRED_AGENTS.items()
 }
 
-
 ARTIFACT_REQUIRED_AGENT: dict[str, str] = {
-    "functional_spec": "product",
-    "technical_spec": "architecture",
-    "adr": "architecture",
-    "runbook": "devops",
+    artifact: agents[0]
+    for artifact, agents in ARTIFACT_REQUIRED_AGENTS.items()
 }
 
 
@@ -124,6 +116,7 @@ class OrchestrationConfig:
     persist_full_request: bool = False
     improvement_candidate_threshold: int = 3
     document_templates: Mapping[str, str] = field(default_factory=dict)
+    policies: tuple[ProjectRoutingPolicy, ...] = ()
 
 
 @dataclass(slots=True)
@@ -136,6 +129,8 @@ class OrchestrationTrace:
     agent_decisions: tuple[AgentGateDecision, ...]
     dag: tuple[dict[str, Any], ...]
     routing_fingerprint: str = ""
+    independent_risk_flags: tuple[str, ...] = ()
+    policy_activations: tuple[str, ...] = ()
     full_request: str | None = None
     model_calls: int = 0
     handoffs: int = 0
@@ -153,6 +148,8 @@ class OrchestrationTrace:
             "classification": self.classification,
             "routing_fingerprint": self.routing_fingerprint,
             "risk_flags": list(self.risk_flags),
+            "independent_risk_flags": list(self.independent_risk_flags),
+            "policy_activations": list(self.policy_activations),
             "durable_artifacts": list(self.durable_artifacts),
             "agent_decisions": [asdict(item) for item in self.agent_decisions],
             "dag": list(self.dag),
@@ -247,6 +244,7 @@ def orchestration_config_from_mapping(
             for key, value in templates.items()
             if str(key).strip() and str(value).strip()
         },
+        policies=project_policies_from_mapping(data.get("policies")),
     )
 
 
@@ -274,6 +272,10 @@ def validate_gate_policy(
     enabled_agents: Iterable[str],
     required_disabled_agents: Iterable[str] = (),
 ) -> None:
+    validate_profile_contracts(
+        risk_flags=profile.risk_flags,
+        durable_artifacts=profile.durable_artifacts,
+    )
     enabled = {normalize_agent_key(value) for value in enabled_agents}
     required_disabled = {
         normalize_agent_key(value) for value in required_disabled_agents
@@ -283,40 +285,27 @@ def validate_gate_policy(
         for item in decisions
     }
 
-    for risk in profile.risk_flags:
-        agent = RISK_REQUIRED_AGENT.get(risk)
-        if not agent:
-            continue
+    def require_agent(agent: str, source: str) -> None:
         if agent not in enabled:
             if agent not in required_disabled:
                 raise ValueError(
-                    f"Risk '{risk}' requires disabled agent '{agent}', "
+                    f"{source} requires disabled agent '{agent}', "
                     "which must be declared in required_disabled_agents."
                 )
-            continue
+            return
         decision = by_agent.get(agent)
         if decision is None or not decision.selected:
             raise ValueError(
-                f"Risk '{risk}' requires selected agent '{agent}'."
+                f"{source} requires selected agent '{agent}'."
             )
 
+    for risk in profile.risk_flags:
+        for agent in RISK_REQUIRED_AGENTS[risk]:
+            require_agent(agent, f"Risk '{risk}'")
+
     for artifact in profile.durable_artifacts:
-        agent = ARTIFACT_REQUIRED_AGENT.get(artifact)
-        if agent:
-            if agent not in enabled:
-                if agent not in required_disabled:
-                    raise ValueError(
-                        f"Artifact '{artifact}' requires disabled agent "
-                        f"'{agent}', which must be declared in "
-                        "required_disabled_agents."
-                    )
-            else:
-                decision = by_agent.get(agent)
-                if decision is None or not decision.selected:
-                    raise ValueError(
-                        f"Artifact '{artifact}' requires selected agent "
-                        f"'{agent}'."
-                    )
+        for agent in ARTIFACT_REQUIRED_AGENTS.get(artifact, ()):
+            require_agent(agent, f"Artifact '{artifact}'")
 
     if profile.durable_artifacts:
         if "documentation" not in enabled:

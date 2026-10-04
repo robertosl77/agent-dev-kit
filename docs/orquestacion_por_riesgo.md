@@ -11,13 +11,15 @@ responsabilidad, un riesgo, una dependencia o un artefacto lo exige.
 ```text
 pedido
   ↓
-Triage clasifica
+preclasificación determinística de riesgos críticos
+  ↓
+Triage clasifica y propone
   ↓
 perfil de riesgo / impacto / artefactos
   ↓
 decisión explícita por cada especialista habilitado
   ↓
-validación determinística de gates
+validación determinística de contratos, riesgos y policies
   ↓
 DAG mínimo con fases y dependencias
   ↓
@@ -46,8 +48,14 @@ Ejemplos:
   responsabilidad es material para la solicitud.
 
 El planner declara además `risk_flags`. Algunos flags exigen
-determinísticamente al especialista correspondiente. Si el plan contradice sus
-propios riesgos, se rechaza antes de ejecutar.
+determinísticamente al especialista correspondiente. Esa declaración ya no es la
+única fuente de verdad: antes de ejecutar, el framework vuelve a clasificar de
+forma determinística riesgos críticos como autenticación, cambios de esquema,
+APIs públicas, datos sensibles y deployment. Los riesgos detectados se fusionan
+con los de Triage y no pueden ser omitidos para evitar un gate.
+
+`risk_flags`, fases y artefactos durables usan contratos cerrados. Un valor
+desconocido o un typo se rechaza; no se degrada silenciosamente a texto libre.
 
 ## Fases
 
@@ -92,6 +100,28 @@ orchestration:
 El usuario también puede pedir explícitamente crear o actualizar un documento,
 lo que activa el gate correspondiente.
 
+## Policies determinísticas del proyecto
+
+El proyecto consumidor puede endurecer el routing desde
+`.agent-dev-kit/project.yaml` con reglas estructuradas:
+
+```yaml
+orchestration:
+  policies:
+    - id: auth_requires_review
+      when:
+        any_risk_flags:
+          - auth_change
+      require_agents:
+        - reviewer
+```
+
+Las policies sólo agregan requisitos. No pueden desactivar invariantes nativas
+del framework. El schema valida IDs, riesgos y agentes al cargar la
+configuración. Si una policy activada contradice la propuesta de Triage, el plan
+se rechaza antes de ejecutar. La traza registra los IDs de las policies
+activadas y los riesgos detectados por la preclasificación independiente.
+
 ## Contexto mínimo por nodo
 
 Triage recibe la solicitud original para planificar.
@@ -112,8 +142,9 @@ Cada ejecución puede persistir una traza JSONL local configurable con:
 - resumen de solicitud;
 - fingerprint;
 - clasificación;
-- riesgos;
+- riesgos finales y riesgos detectados independientemente;
 - artefactos;
+- policies de proyecto activadas;
 - especialistas seleccionados y omitidos con razón;
 - DAG/fases;
 - llamadas a modelos;
