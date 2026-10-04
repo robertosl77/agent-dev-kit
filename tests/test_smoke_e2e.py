@@ -63,6 +63,20 @@ class SmokeProvider(AgentProvider):
                 return ProviderRunResult(
                     output="""{
                       "request": "Fix progress report",
+                      "profile": {
+                        "summary": "Redesign progress report experience.",
+                        "classification": "ux_change",
+                        "risk_flags": ["ux_change"],
+                        "durable_artifacts": []
+                      },
+                      "agent_decisions": [
+                        {"agent": "architecture", "selected": false, "gate": "cross_layer", "reason": "No architecture decision before UX definition."},
+                        {"agent": "backend", "selected": false, "gate": "backend_change", "reason": "No backend work can be planned yet."},
+                        {"agent": "frontend", "selected": false, "gate": "frontend_change", "reason": "Frontend implementation waits for UX."},
+                        {"agent": "testing", "selected": false, "gate": "behavior_regression", "reason": "Validation waits for implementation."},
+                        {"agent": "reviewer", "selected": false, "gate": "technical_review", "reason": "Review waits for implementation."},
+                        {"agent": "documentation", "selected": false, "gate": "durable_artifact", "reason": "No durable artifact requested."}
+                      ],
                       "required_disabled_agents": ["ux_ui"],
                       "nodes": []
                     }""",
@@ -72,56 +86,40 @@ class SmokeProvider(AgentProvider):
             return ProviderRunResult(
                 output="""{
                   "request": "Fix progress report data and UX",
+                  "profile": {
+                    "summary": "Fix progress report data and UX.",
+                    "classification": "cross_layer_feature_fix",
+                    "risk_flags": [
+                      "cross_layer",
+                      "persistence_change",
+                      "ux_change",
+                      "backend_change",
+                      "frontend_change",
+                      "behavior_regression",
+                      "technical_review"
+                    ],
+                    "durable_artifacts": ["technical_spec"]
+                  },
+                  "agent_decisions": [
+                    {"agent": "architecture", "selected": true, "gate": "cross_layer", "reason": "Cross-layer contracts must be defined."},
+                    {"agent": "database", "selected": true, "gate": "persistence_change", "reason": "Progress data persistence is affected."},
+                    {"agent": "ux_ui", "selected": true, "gate": "ux_change", "reason": "Report experience changes."},
+                    {"agent": "backend", "selected": true, "gate": "backend_change", "reason": "Progress API behavior changes."},
+                    {"agent": "frontend", "selected": true, "gate": "frontend_change", "reason": "Report screen changes."},
+                    {"agent": "testing", "selected": true, "gate": "behavior_regression", "reason": "Changed behavior needs regression validation."},
+                    {"agent": "reviewer", "selected": true, "gate": "technical_review", "reason": "Cross-layer change needs independent review."},
+                    {"agent": "documentation", "selected": true, "gate": "durable_artifact", "reason": "Technical specification must stay synchronized."}
+                  ],
                   "required_disabled_agents": [],
                   "nodes": [
-                    {
-                      "id": "architecture",
-                      "agent": "architecture",
-                      "objective": "Define boundaries and contracts.",
-                      "depends_on": []
-                    },
-                    {
-                      "id": "database",
-                      "agent": "database",
-                      "objective": "Validate progress data model.",
-                      "depends_on": ["architecture"]
-                    },
-                    {
-                      "id": "ux",
-                      "agent": "ux_ui",
-                      "objective": "Define improved report experience.",
-                      "depends_on": ["architecture"]
-                    },
-                    {
-                      "id": "backend",
-                      "agent": "backend",
-                      "objective": "Implement correct progress API.",
-                      "depends_on": ["database"]
-                    },
-                    {
-                      "id": "frontend",
-                      "agent": "frontend",
-                      "objective": "Implement the report screen.",
-                      "depends_on": ["ux", "backend"]
-                    },
-                    {
-                      "id": "testing",
-                      "agent": "testing",
-                      "objective": "Automate technical validation.",
-                      "depends_on": ["backend", "frontend"]
-                    },
-                    {
-                      "id": "reviewer",
-                      "agent": "reviewer",
-                      "objective": "Review the complete delivery.",
-                      "depends_on": ["testing"]
-                    },
-                    {
-                      "id": "documentation",
-                      "agent": "documentation",
-                      "objective": "Document task evidence and durable decisions.",
-                      "depends_on": ["reviewer"]
-                    }
+                    {"id": "architecture", "agent": "architecture", "phase": "design", "objective": "Define boundaries and contracts.", "depends_on": []},
+                    {"id": "database", "agent": "database", "phase": "implementation", "objective": "Validate progress data model.", "depends_on": ["architecture"]},
+                    {"id": "ux", "agent": "ux_ui", "phase": "design", "objective": "Define improved report experience.", "depends_on": ["architecture"]},
+                    {"id": "backend", "agent": "backend", "phase": "implementation", "objective": "Implement correct progress API.", "depends_on": ["database"]},
+                    {"id": "frontend", "agent": "frontend", "phase": "implementation", "objective": "Implement the report screen.", "depends_on": ["ux", "backend"]},
+                    {"id": "testing", "agent": "testing", "phase": "validation", "objective": "Automate technical validation.", "depends_on": ["backend", "frontend"]},
+                    {"id": "reviewer", "agent": "reviewer", "phase": "validation", "objective": "Review the complete delivery.", "depends_on": ["testing"]},
+                    {"id": "documentation", "agent": "documentation", "phase": "documentation", "objective": "Synchronize durable technical decisions.", "depends_on": ["reviewer"]}
                   ]
                 }""",
                 active_agent=agent,
