@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from agent_dev_kit.execution import ProviderRuntime
 from agent_dev_kit.preferences import PreferenceProfile
+from agent_dev_kit.orchestration_trace import suggest_trace_review_issues
 from agent_dev_kit.project_config import (
     ProjectAgentDevKitConfig,
     load_project_config,
@@ -246,6 +247,40 @@ class AgentDevKitGateway:
             "request": state.request,
             "pending_stage": state.pending_stage,
             "plan": self._plan_payload(state.plan),
+        }
+
+    def orchestration_issue_proposals(
+        self,
+        *,
+        min_occurrences: int = 3,
+    ) -> dict[str, Any]:
+        """Return human-review Issue proposals from completed in-memory traces."""
+
+        if not self.config.orchestration.trace.propose_issues:
+            return {
+                "status": "disabled",
+                "proposals": [],
+            }
+
+        traces = [
+            state.plan.trace
+            for state in self._tasks.values()
+            if state.plan is not None
+            and state.plan.trace is not None
+            and state.plan.trace.finished_at is not None
+        ]
+        proposals = suggest_trace_review_issues(
+            traces,
+            min_occurrences=min_occurrences,
+        )
+        return {
+            "status": "ok",
+            "traces_considered": len(traces),
+            "proposals": [
+                proposal.to_dict() for proposal in proposals
+            ],
+            "auto_modify": False,
+            "auto_create_issue": False,
         }
 
     def _send_chat(
