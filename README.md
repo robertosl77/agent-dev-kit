@@ -147,6 +147,7 @@ agents:
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Smoke test pre-versionado](docs/smoke_test.md)
 - [Interfaz MCP para clientes de chat](docs/interfaz_mcp.md)
+- [Integración con GitHub Copilot](docs/integracion_copilot.md)
 - [Distribución y versionado](docs/distribucion_versionado.md)
 - [Política Git por proyecto](docs/git_workflow.md)
 - [Proveedores](docs/proveedores.md)
