@@ -15,6 +15,17 @@ stack:
 provider:
   name: openai
 
+documentation:
+  templates:
+    functional_spec: docs/templates/functional-spec.md
+    technical_spec: docs/templates/technical-spec.md
+
+orchestration:
+  trace:
+    path: .agent-dev-kit/runtime/orchestration.jsonl
+    retain_request_text: false
+    propose_issues: true
+
 git_workflow:
   branches:
     production: main
