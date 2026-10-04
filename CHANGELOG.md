@@ -55,6 +55,9 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
 ### MCP
 
+- decisión de arquitectura para Copilot como cliente vía MCP;
+- Custom Agent definido como adaptador opcional sobre MCP, sin duplicar el orquestador;
+- GitHub App separada como mecanismo de acceso remoto al repositorio para M-027;
 - gateway neutral de cliente;
 - servidor MCP v2;
 - transporte stdio;
