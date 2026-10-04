@@ -208,6 +208,13 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         node.status = "running"
+        started = perf_counter()
+        if plan.trace is not None:
+            attempts = plan.trace.node_attempts.get(node.id, 0) + 1
+            plan.trace.node_attempts[node.id] = attempts
+            plan.trace.model_calls += 1
+            if attempts > 1:
+                plan.trace.revisits += 1
         try:
             result = self.provider.run_sync(
                 handle,
@@ -216,10 +223,21 @@ class DevAgentKit:
             )
         except Exception:
             node.status = "pending"
+            if plan.trace is not None:
+                plan.trace.status = "interrupted"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise
 
         if result.active_agent.name != handle.name:
             node.status = "blocked"
+            if plan.trace is not None:
+                plan.trace.handoffs += 1
+                plan.trace.status = "blocked"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise TaskPlanError(
                 f"Node '{node.id}' handed off unexpectedly from "
                 f"'{handle.name}' to '{result.active_agent.name}'. "
@@ -232,6 +250,10 @@ class DevAgentKit:
             "active_agent": result.active_agent.name,
         }
         node.status = "completed"
+        if plan.trace is not None:
+            plan.trace.node_durations_ms[node.id] = (
+                perf_counter() - started
+            ) * 1000
 
     async def _execute_node(
         self,
@@ -242,6 +264,13 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         node.status = "running"
+        started = perf_counter()
+        if plan.trace is not None:
+            attempts = plan.trace.node_attempts.get(node.id, 0) + 1
+            plan.trace.node_attempts[node.id] = attempts
+            plan.trace.model_calls += 1
+            if attempts > 1:
+                plan.trace.revisits += 1
         try:
             result = await self.provider.run(
                 handle,
@@ -250,10 +279,21 @@ class DevAgentKit:
             )
         except Exception:
             node.status = "pending"
+            if plan.trace is not None:
+                plan.trace.status = "interrupted"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise
 
         if result.active_agent.name != handle.name:
             node.status = "blocked"
+            if plan.trace is not None:
+                plan.trace.handoffs += 1
+                plan.trace.status = "blocked"
+                plan.trace.node_durations_ms[node.id] = (
+                    perf_counter() - started
+                ) * 1000
             raise TaskPlanError(
                 f"Node '{node.id}' handed off unexpectedly from "
                 f"'{handle.name}' to '{result.active_agent.name}'. "
@@ -266,6 +306,10 @@ class DevAgentKit:
             "active_agent": result.active_agent.name,
         }
         node.status = "completed"
+        if plan.trace is not None:
+            plan.trace.node_durations_ms[node.id] = (
+                perf_counter() - started
+            ) * 1000
 
     @staticmethod
     def _node_prompt(plan: TaskPlan, node: TaskNode) -> str:
@@ -288,7 +332,7 @@ class DevAgentKit:
             "specialist; cross-specialist sequencing is owned by the task "
             "plan. If another responsibility is required, report it as a "
             "blocker.\n\n"
-            f"Original request:\n{plan.request}\n\n"
+            f"Task summary:\n{plan.profile.summary if plan.profile else plan.request}\n\n"
             f"Node id: {node.id}\n"
             f"Your responsibility: {node.agent}\n"
             f"Objective:\n{node.objective}\n\n"
