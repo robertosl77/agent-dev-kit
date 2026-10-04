@@ -143,6 +143,7 @@ agents:
 - [Coordinación multi-especialista](docs/orquestacion_multiagente.md)
 - [Preferencias persistentes del usuario](docs/preferencias_usuario.md)
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
+- [Smoke test pre-versionado](docs/smoke_test.md)
 - [Proveedores](docs/proveedores.md)
 - [Documentación individual de agentes](docs/agentes/)
 
