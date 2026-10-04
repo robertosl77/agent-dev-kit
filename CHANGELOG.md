@@ -66,6 +66,15 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - `GitPolicyGuard` determinístico para integraciones Git;
 - recomendación de defensa en profundidad con Rulesets/Branch Protection.
 
+### Seguridad
+
+- Security como dueño explícito del riesgo y de los criterios de seguridad;
+- security testing defensivo para injection, XSS, autorización/IDOR, path traversal, uploads y configuración;
+- security regression automatizable mediante Testing;
+- integración de SAST/SCA/secret scanning/container checks/DAST mediante DevOps cuando corresponda;
+- Reviewer verifica evidencia y disposición de hallazgos bloqueantes;
+- límites explícitos contra pruebas destructivas no autorizadas.
+
 ### Calidad
 
 - documentación individual de los 16 agentes;
