@@ -196,9 +196,26 @@ orchestration:
     enabled: true
     path: .agent-dev-kit/runtime/orchestration-traces.jsonl
     persist_full_request: false
+    max_entries: 1000
 ```
 
 La telemetría runtime se excluye del versionado Git.
+
+
+El path de trazas se resuelve contra el `project_root` y se rechaza si intenta
+escapar mediante una ruta absoluta, `../` o un symlink que resuelva fuera del
+proyecto. El store mantiene un lock compartido por path para escrituras
+concurrentes dentro del proceso, aplica retención por cantidad máxima de
+entradas y ofrece `iter_read()` para consumo incremental.
+
+Las trazas se persisten también en estados no exitosos relevantes:
+`interrupted`, `blocked`, `failed` y `requires_human_approval`. Si una
+ejecución interrumpida se reanuda y termina correctamente, queda un evento
+posterior `completed`, preservando ambos hechos.
+
+`request_summary` se normaliza a una línea, se limita en longitud y redacta
+patrones obvios de secretos. El pedido completo sigue sin persistirse por
+defecto.
 
 ## Mejora continua
 

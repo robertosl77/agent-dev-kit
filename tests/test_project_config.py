@@ -240,6 +240,7 @@ orchestration:
     enabled: true
     path: .agent-dev-kit/runtime/traces.jsonl
     persist_full_request: false
+    max_entries: 250
   improvement_candidate_threshold: 4
   document_templates:
     functional_spec: .agent-dev-kit/templates/functional.md
@@ -256,6 +257,7 @@ agents:
 
     assert config.orchestration.trace_enabled is True
     assert config.orchestration.persist_full_request is False
+    assert config.orchestration.trace_max_entries == 250
     assert config.orchestration.improvement_candidate_threshold == 4
     assert (
         config.orchestration.document_templates["functional_spec"]
