@@ -50,7 +50,7 @@ class SmokeProvider(AgentProvider):
         return self.run_sync(agent, message, session=session)
 
     def run_sync(self, agent, message, *, session=None):
-        if agent.name == "Agent Triage" and "Planning-only operation" in message:
+        if agent.name == "Agent Triage Planner" and "Planning-only operation" in message:
             enabled_block = message.split(
                 "Enabled agent keys:\n",
                 1,
@@ -78,6 +78,7 @@ class SmokeProvider(AgentProvider):
                         {"agent": "documentation", "selected": false, "gate": "durable_artifact", "reason": "No durable artifact requested."}
                       ],
                       "required_disabled_agents": ["ux_ui"],
+                      "notes": null,
                       "nodes": []
                     }""",
                     active_agent=agent,
@@ -111,6 +112,7 @@ class SmokeProvider(AgentProvider):
                     {"agent": "documentation", "selected": true, "gate": "durable_artifact", "reason": "Technical specification must stay synchronized."}
                   ],
                   "required_disabled_agents": [],
+                  "notes": null,
                   "nodes": [
                     {"id": "architecture", "agent": "architecture", "phase": "design", "objective": "Define boundaries and contracts.", "depends_on": []},
                     {"id": "database", "agent": "database", "phase": "implementation", "objective": "Validate progress data model.", "depends_on": ["architecture"]},

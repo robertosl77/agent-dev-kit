@@ -1,7 +1,16 @@
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
+from agent_dev_kit.planner_contract import planner_payload_to_mapping
+from agent_dev_kit.orchestration_policy import (
+    ProjectRoutingPolicy,
+    coerce_durable_artifact,
+    coerce_risk_flag,
+    coerce_task_phase,
+    evaluate_project_policies,
+    preclassify_request,
+)
 from agent_dev_kit.orchestration import (
     AGENT_GATE_GUIDANCE,
     AgentGateDecision,
@@ -46,6 +55,14 @@ class TaskPlan:
     agent_decisions: tuple[AgentGateDecision, ...] = ()
     trace: OrchestrationTrace | None = None
     decisions_explicit: bool = False
+    independent_risk_flags: tuple[str, ...] = ()
+    policy_activations: tuple[str, ...] = ()
+    policy_required_agents: tuple[str, ...] = ()
+    provider_calls: int = 0
+    revisits: int = 0
+    node_attempts: dict[str, int] = field(default_factory=dict)
+    calls_avoided_by_reuse: int = 0
+    execution_status: str = "planned"
 
     @classmethod
     def from_json(
@@ -53,23 +70,34 @@ class TaskPlan:
         payload: str,
         *,
         require_agent_decisions: bool = False,
+        strict_schema: bool = False,
     ) -> "TaskPlan":
-        cleaned = payload.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            cleaned = "\n".join(lines).strip()
-
+        cleaned = _strip_fenced_json(payload)
         try:
             data = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise TaskPlanError("Triage did not return valid JSON.") from exc
+        return cls.from_payload(
+            data,
+            require_agent_decisions=require_agent_decisions,
+            strict_schema=strict_schema,
+        )
 
-        if not isinstance(data, dict):
-            raise TaskPlanError("Task plan root must be a JSON object.")
+    @classmethod
+    def from_payload(
+        cls,
+        payload: Any,
+        *,
+        require_agent_decisions: bool = False,
+        strict_schema: bool = False,
+    ) -> "TaskPlan":
+        try:
+            data = dict(planner_payload_to_mapping(payload))
+        except (TypeError, ValueError) as exc:
+            raise TaskPlanError(str(exc)) from exc
+
+        if strict_schema:
+            _validate_strict_plan_payload(data)
 
         raw_nodes = data.get("nodes") or []
         if not isinstance(raw_nodes, list):
@@ -77,7 +105,7 @@ class TaskPlan:
 
         nodes: list[TaskNode] = []
         for item in raw_nodes:
-            if not isinstance(item, dict):
+            if not isinstance(item, Mapping):
                 raise TaskPlanError("Each task node must be an object.")
             nodes.append(
                 TaskNode(
@@ -86,8 +114,9 @@ class TaskPlan:
                         str(item.get("agent") or "")
                     ),
                     objective=str(item.get("objective") or "").strip(),
-                    phase=normalize_gate_key(
-                        str(item.get("phase") or "implementation")
+                    phase=_coerce_contract(
+                        coerce_task_phase,
+                        str(item.get("phase") or "implementation"),
                     ),
                     depends_on=tuple(
                         str(value).strip()
@@ -99,7 +128,7 @@ class TaskPlan:
         request = str(data.get("request") or "").strip()
 
         profile_data = data.get("profile") or {}
-        if not isinstance(profile_data, dict):
+        if not isinstance(profile_data, Mapping):
             raise TaskPlanError("'profile' must be an object.")
         profile = RequestProfile(
             summary=str(profile_data.get("summary") or request).strip(),
@@ -107,12 +136,12 @@ class TaskPlan:
                 profile_data.get("classification") or "unspecified"
             ).strip(),
             risk_flags=tuple(
-                normalize_gate_key(str(value))
+                _coerce_contract(coerce_risk_flag, str(value))
                 for value in (profile_data.get("risk_flags") or [])
                 if str(value).strip()
             ),
             durable_artifacts=tuple(
-                normalize_gate_key(str(value))
+                _coerce_contract(coerce_durable_artifact, str(value))
                 for value in (profile_data.get("durable_artifacts") or [])
                 if str(value).strip()
             ),
@@ -131,7 +160,7 @@ class TaskPlan:
 
         decisions: list[AgentGateDecision] = []
         for item in raw_decisions:
-            if not isinstance(item, dict):
+            if not isinstance(item, Mapping):
                 raise TaskPlanError(
                     "Each agent decision must be an object."
                 )
@@ -241,11 +270,38 @@ class TaskPlan:
     def validate_orchestration_policy(
         self,
         enabled_agents: Iterable[str],
+        *,
+        request: str | None = None,
+        project_policies: Iterable[ProjectRoutingPolicy] = (),
     ) -> None:
         if not self.decisions_explicit:
             raise TaskPlanError(
                 "Orchestrated plans require explicit gate decisions."
             )
+
+        if self.profile is None:
+            raise TaskPlanError("Task profile is required.")
+
+        independent = preclassify_request(request or self.request)
+        merged_risks = tuple(
+            dict.fromkeys((*self.profile.risk_flags, *independent))
+        )
+        self.independent_risk_flags = independent
+        if merged_risks != self.profile.risk_flags:
+            self.profile = RequestProfile(
+                summary=self.profile.summary,
+                classification=self.profile.classification,
+                risk_flags=merged_risks,
+                durable_artifacts=self.profile.durable_artifacts,
+            )
+
+        policies = tuple(project_policies)
+        evaluation = evaluate_project_policies(
+            self.profile.risk_flags,
+            policies,
+        )
+        self.policy_activations = evaluation.activated_policy_ids
+        self.policy_required_agents = evaluation.required_agents
 
         enabled = tuple(
             normalize_agent_key(item) for item in enabled_agents
@@ -268,6 +324,25 @@ class TaskPlan:
             )
         except ValueError as exc:
             raise TaskPlanError(str(exc)) from exc
+
+        by_agent = {item.agent: item for item in self.agent_decisions}
+        required_disabled = set(self.required_disabled_agents)
+        for agent in self.policy_required_agents:
+            if agent not in enabled:
+                if agent not in required_disabled:
+                    raise TaskPlanError(
+                        "Activated project policy requires disabled agent "
+                        f"'{agent}', which must be declared in "
+                        "required_disabled_agents."
+                    )
+                continue
+            decision = by_agent.get(agent)
+            if decision is None or not decision.selected:
+                policies_text = ", ".join(self.policy_activations)
+                raise TaskPlanError(
+                    f"Activated project policy ({policies_text}) requires "
+                    f"selected agent '{agent}'."
+                )
 
     def missing_agents(
         self,
@@ -328,6 +403,158 @@ class TaskPlan:
             visit(node_id)
 
 
+
+def _strip_fenced_json(payload: str) -> str:
+    cleaned = payload.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    return cleaned
+
+
+def _validate_strict_plan_payload(data: Mapping[str, Any]) -> None:
+    _require_exact_keys(
+        data,
+        required={
+            "request",
+            "profile",
+            "agent_decisions",
+            "required_disabled_agents",
+            "notes",
+            "nodes",
+        },
+        label="Task plan",
+    )
+
+    if not isinstance(data["request"], str) or not data["request"].strip():
+        raise TaskPlanError("'request' must be a non-empty string.")
+    if data["notes"] is not None and not isinstance(data["notes"], str):
+        raise TaskPlanError("'notes' must be a string or null.")
+
+    profile = data["profile"]
+    if not isinstance(profile, Mapping):
+        raise TaskPlanError("'profile' must be an object.")
+    _require_exact_keys(
+        profile,
+        required={
+            "summary",
+            "classification",
+            "risk_flags",
+            "durable_artifacts",
+        },
+        label="Task profile",
+    )
+    for field_name in ("summary", "classification"):
+        if (
+            not isinstance(profile[field_name], str)
+            or not profile[field_name].strip()
+        ):
+            raise TaskPlanError(
+                f"'profile.{field_name}' must be a non-empty string."
+            )
+    _require_list(profile["risk_flags"], "'profile.risk_flags'")
+    _require_list(
+        profile["durable_artifacts"],
+        "'profile.durable_artifacts'",
+    )
+
+    decisions = data["agent_decisions"]
+    _require_list(decisions, "'agent_decisions'")
+    for index, item in enumerate(decisions):
+        if not isinstance(item, Mapping):
+            raise TaskPlanError(
+                f"agent_decisions[{index}] must be an object."
+            )
+        _require_exact_keys(
+            item,
+            required={"agent", "selected", "gate", "reason"},
+            label=f"agent_decisions[{index}]",
+        )
+        if not isinstance(item["selected"], bool):
+            raise TaskPlanError(
+                f"agent_decisions[{index}].selected must be boolean."
+            )
+        for field_name in ("agent", "gate", "reason"):
+            if (
+                not isinstance(item[field_name], str)
+                or not item[field_name].strip()
+            ):
+                raise TaskPlanError(
+                    f"agent_decisions[{index}].{field_name} "
+                    "must be a non-empty string."
+                )
+
+    required_disabled = data["required_disabled_agents"]
+    _require_list(
+        required_disabled,
+        "'required_disabled_agents'",
+    )
+    if any(not isinstance(item, str) for item in required_disabled):
+        raise TaskPlanError(
+            "'required_disabled_agents' must contain only strings."
+        )
+
+    nodes = data["nodes"]
+    _require_list(nodes, "'nodes'")
+    for index, item in enumerate(nodes):
+        if not isinstance(item, Mapping):
+            raise TaskPlanError(f"nodes[{index}] must be an object.")
+        _require_exact_keys(
+            item,
+            required={"id", "agent", "phase", "objective", "depends_on"},
+            label=f"nodes[{index}]",
+        )
+        for field_name in ("id", "agent", "phase", "objective"):
+            if (
+                not isinstance(item[field_name], str)
+                or not item[field_name].strip()
+            ):
+                raise TaskPlanError(
+                    f"nodes[{index}].{field_name} must be a non-empty string."
+                )
+        _require_list(item["depends_on"], f"nodes[{index}].depends_on")
+        if any(not isinstance(value, str) for value in item["depends_on"]):
+            raise TaskPlanError(
+                f"nodes[{index}].depends_on must contain only strings."
+            )
+
+
+def _require_exact_keys(
+    value: Mapping[str, Any],
+    *,
+    required: set[str],
+    label: str,
+) -> None:
+    actual = set(value)
+    missing = required - actual
+    unknown = actual - required
+    if missing:
+        raise TaskPlanError(
+            f"{label} missing required field(s): "
+            + ", ".join(sorted(missing))
+        )
+    if unknown:
+        raise TaskPlanError(
+            f"{label} contains unknown field(s): "
+            + ", ".join(sorted(unknown))
+        )
+
+
+def _require_list(value: Any, label: str) -> None:
+    if not isinstance(value, list):
+        raise TaskPlanError(f"{label} must be a list.")
+
+def _coerce_contract(coercer, value: str) -> str:
+    try:
+        return coercer(value)
+    except ValueError as exc:
+        raise TaskPlanError(str(exc)) from exc
+
+
 def normalize_gate_key(value: str) -> str:
     return (
         value.strip()
@@ -343,6 +570,7 @@ def build_planning_prompt(
     *,
     enabled_agents: Iterable[str],
     available_agents: Iterable[str],
+    project_policies: Iterable[ProjectRoutingPolicy] = (),
 ) -> str:
     enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
     available = tuple(normalize_agent_key(item) for item in available_agents)
@@ -352,6 +580,17 @@ def build_planning_prompt(
     gate_lines = "\n".join(
         f"- {agent}: {AGENT_GATE_GUIDANCE.get(agent, 'Use only when materially required.')}"
         for agent in specialists
+    )
+    policy_lines = "\n".join(
+        "- "
+        + policy.id
+        + ": any_risk_flags="
+        + ",".join(policy.any_risk_flags)
+        + "; all_risk_flags="
+        + ",".join(policy.all_risk_flags)
+        + "; require_agents="
+        + ",".join(policy.require_agents)
+        for policy in project_policies
     )
 
     return f"""Planning-only operation. Do not hand off.
@@ -372,6 +611,9 @@ Known but disabled agent keys:
 Gate policy for enabled specialists:
 {gate_lines or "(none)"}
 
+Deterministic project policies (enforced independently after planning):
+{policy_lines or "(none)"}
+
 Rules:
 - Use responsibilities, not technologies, to choose agents.
 - Return one explicit selected/omitted decision for EVERY enabled specialist
@@ -384,8 +626,13 @@ Rules:
   functional_ambiguity, backlog_coordination, cross_layer, ux_change,
   backend_change, frontend_change, persistence_change, security_surface,
   behavior_regression, technical_review, deployment_change,
-  performance_risk, runtime_reliability, analytics_data.
+  performance_risk, runtime_reliability, analytics_data, auth_change,
+  schema_change, public_api_change, sensitive_data.
 - A declared risk flag requires its responsible enabled specialist.
+- Critical risks are also preclassified deterministically after Triage; omitting
+  them here cannot bypass their required specialists.
+- Matching project policies can only add required specialists. If one is
+  disabled, declare it in required_disabled_agents.
 - Durable artifact names: functional_spec, technical_spec, adr, runbook,
   release_notes, project_docs.
 - Any durable artifact requires Documentation when enabled.

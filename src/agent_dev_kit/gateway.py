@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from time import monotonic
+from typing import Any, Callable
 from uuid import uuid4
 
 from agent_dev_kit.execution import ProviderRuntime
+from agent_dev_kit.orchestration_budget import OrchestrationBudgetExceeded
 from agent_dev_kit.preferences import PreferenceProfile
 from agent_dev_kit.project_config import (
     ProjectAgentDevKitConfig,
@@ -25,10 +28,33 @@ from agent_dev_kit.task_plan import TaskPlan
 from agent_dev_kit.tooling import ToolRegistry
 
 
+class TaskGatewayStatus(StrEnum):
+    PENDING = "pending"
+    PLANNING = "planning"
+    EXECUTING = "executing"
+    FALLBACK_PENDING = "fallback_pending"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    REQUIRES_HUMAN_APPROVAL = "requires_human_approval"
+    COMPLETED = "completed"
+
+
+_TERMINAL_TASK_STATUSES = frozenset(
+    {
+        TaskGatewayStatus.BLOCKED,
+        TaskGatewayStatus.FAILED,
+        TaskGatewayStatus.REQUIRES_HUMAN_APPROVAL,
+        TaskGatewayStatus.COMPLETED,
+    }
+)
+
+
 @dataclass(slots=True)
 class ConversationGatewayState:
     runtime: ProviderRuntime
     conversation: DevConversation
+    created_at: float
+    last_accessed_at: float
     history: list[tuple[str, str]] = field(default_factory=list)
     pending_error: ProviderRecoverableError | None = None
     pending_message: str | None = None
@@ -39,10 +65,16 @@ class ConversationGatewayState:
 class TaskGatewayState:
     runtime: ProviderRuntime
     request: str
+    created_at: float
+    last_accessed_at: float
+    status: TaskGatewayStatus = TaskGatewayStatus.PENDING
     plan: TaskPlan | None = None
     pending_error: ProviderRecoverableError | None = None
     pending_stage: str | None = None
-    completed: bool = False
+    budget_error: OrchestrationBudgetExceeded | None = None
+    blocked_reason: str | None = None
+    required_disabled_agents: tuple[str, ...] = ()
+    failure: dict[str, Any] | None = None
 
 
 class AgentDevKitGateway:
@@ -59,6 +91,7 @@ class AgentDevKitGateway:
         registry: ProviderRegistry | None = None,
         tool_registry: ToolRegistry | None = None,
         preference_profile: PreferenceProfile | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.config: ProjectAgentDevKitConfig = load_project_config(
@@ -67,12 +100,14 @@ class AgentDevKitGateway:
         self.registry = registry or build_default_registry()
         self.tool_registry = tool_registry
         self.preference_profile = preference_profile
+        self._clock = clock or monotonic
         self._conversations: dict[str, ConversationGatewayState] = {}
         self._tasks: dict[str, TaskGatewayState] = {}
 
     def status(self) -> dict[str, Any]:
         """Return safe project/runtime metadata without provider secrets."""
 
+        self.cleanup_sessions()
         provider = self.config.provider
         return {
             "status": "ok",
@@ -89,6 +124,8 @@ class AgentDevKitGateway:
             },
             "conversation_sessions": len(self._conversations),
             "task_sessions": len(self._tasks),
+            "session_ttl_seconds": self.config.gateway.session_ttl_seconds,
+            "max_sessions": self.config.gateway.max_sessions,
         }
 
     def chat(
@@ -103,14 +140,21 @@ class AgentDevKitGateway:
         if not text:
             raise ValueError("message cannot be empty.")
 
-        state_id = session_id or self._new_id("chat")
-        state = self._conversations.get(state_id)
+        self.cleanup_sessions()
 
-        if state is None:
+        if session_id is not None:
+            state_id = session_id
+            state = self._conversation_state(state_id)
+        else:
+            self._ensure_session_capacity()
+            state_id = self._new_id("chat")
             runtime = self._new_runtime()
+            now = self._clock()
             state = ConversationGatewayState(
                 runtime=runtime,
                 conversation=runtime.kit.conversation(),
+                created_at=now,
+                last_accessed_at=now,
             )
             self._conversations[state_id] = state
 
@@ -171,6 +215,7 @@ class AgentDevKitGateway:
     def reset_chat(self, session_id: str) -> dict[str, Any]:
         """Delete one gateway conversation and its transcript."""
 
+        self.cleanup_sessions()
         if session_id not in self._conversations:
             raise ValueError(f"Unknown conversation '{session_id}'.")
 
@@ -187,10 +232,15 @@ class AgentDevKitGateway:
         if not text:
             raise ValueError("request cannot be empty.")
 
+        self.cleanup_sessions()
+        self._ensure_session_capacity()
         task_id = self._new_id("task")
+        now = self._clock()
         state = TaskGatewayState(
             runtime=self._new_runtime(),
             request=text,
+            created_at=now,
+            last_accessed_at=now,
         )
         self._tasks[task_id] = state
         return self._advance_task(task_id, state)
@@ -204,14 +254,27 @@ class AgentDevKitGateway:
         """Approve/reject a pending task fallback and resume the same DAG."""
 
         state = self._task_state(task_id)
-        if state.pending_error is None:
+        if (
+            state.status != TaskGatewayStatus.FALLBACK_PENDING
+            or state.pending_error is None
+        ):
             raise ValueError(f"Task '{task_id}' has no pending fallback.")
 
         if not approve:
             provider = state.runtime.current_target.provider
-            state.pending_error = None
             stage = state.pending_stage
+            state.pending_error = None
             state.pending_stage = None
+            state.status = TaskGatewayStatus.FAILED
+            state.failure = {
+                "reason": "fallback_rejected",
+                "stage": stage,
+                "provider": provider,
+            }
+            if state.plan is not None:
+                state.plan.execution_status = "failed"
+                state.runtime.kit._persist_trace(state.plan, "failed")
+            self._touch_task(state)
             return {
                 "status": "fallback_rejected",
                 "task_id": task_id,
@@ -227,24 +290,32 @@ class AgentDevKitGateway:
         )
         state.pending_error = None
         state.pending_stage = None
+        state.failure = None
+        self._touch_task(state)
         return self._advance_task(task_id, state)
 
     def task_status(self, task_id: str) -> dict[str, Any]:
         state = self._task_state(task_id)
         return {
-            "status": (
-                "completed"
-                if state.completed
-                else (
-                    "fallback_pending"
-                    if state.pending_error is not None
-                    else "in_progress"
-                )
-            ),
+            "status": state.status.value,
             "task_id": task_id,
             "provider": state.runtime.current_target.provider,
             "request": state.request,
             "pending_stage": state.pending_stage,
+            "blocked_reason": state.blocked_reason,
+            "required_disabled_agents": list(
+                state.required_disabled_agents
+            ),
+            "failure": (
+                dict(state.failure)
+                if state.failure is not None
+                else None
+            ),
+            "budget": (
+                state.budget_error.to_dict()
+                if state.budget_error is not None
+                else None
+            ),
             "plan": self._plan_payload(state.plan),
         }
 
@@ -260,6 +331,7 @@ class AgentDevKitGateway:
             result = state.conversation.ask_sync(prompt)
         except ProviderRecoverableError as exc:
             state.pending_error = exc
+            state.last_accessed_at = self._clock()
             state.pending_message = message
             state.pending_agent_key = self._agent_key_for_name(
                 state.runtime,
@@ -271,6 +343,7 @@ class AgentDevKitGateway:
                 session_id=session_id,
             )
         except ProviderError as exc:
+            state.last_accessed_at = self._clock()
             return self._provider_error_response(
                 exc,
                 session_id=session_id,
@@ -278,6 +351,7 @@ class AgentDevKitGateway:
 
         state.history.append(("user", message))
         state.history.append(("assistant", result.output))
+        state.last_accessed_at = self._clock()
 
         return {
             "status": "ok",
@@ -292,24 +366,43 @@ class AgentDevKitGateway:
         task_id: str,
         state: TaskGatewayState,
     ) -> dict[str, Any]:
-        if state.completed:
+        if state.status in _TERMINAL_TASK_STATUSES:
             return self.task_status(task_id)
 
         if state.plan is None:
+            state.status = TaskGatewayStatus.PLANNING
+            self._touch_task(state)
             try:
                 state.plan = state.runtime.kit.plan_task_sync(
                     state.request
                 )
+            except OrchestrationBudgetExceeded as exc:
+                state.budget_error = exc
+                state.pending_stage = exc.stage
+                state.status = TaskGatewayStatus.REQUIRES_HUMAN_APPROVAL
+                self._touch_task(state)
+                return self._budget_response(
+                    exc,
+                    task_id=task_id,
+                    plan=self._plan_payload(state.plan),
+                )
             except ProviderRecoverableError as exc:
                 state.pending_error = exc
                 state.pending_stage = "planning"
-                return self._fallback_response(
+                response = self._fallback_response(
                     exc,
                     state.runtime,
                     task_id=task_id,
                     stage="planning",
                 )
+                self._record_task_fallback_response(state, response)
+                return response
             except ProviderError as exc:
+                self._record_task_failure(
+                    state,
+                    error=exc,
+                    stage="planning",
+                )
                 return self._provider_error_response(
                     exc,
                     task_id=task_id,
@@ -320,40 +413,139 @@ class AgentDevKitGateway:
             state.runtime.kit.agents.keys()
         )
         if missing:
+            state.status = TaskGatewayStatus.BLOCKED
+            state.blocked_reason = "required_agents_disabled"
+            state.required_disabled_agents = tuple(missing)
+            state.plan.execution_status = "blocked"
+            if state.plan.trace is not None:
+                state.runtime.kit._persist_trace(
+                    state.plan,
+                    "blocked",
+                )
+            self._touch_task(state)
             return {
-                "status": "blocked",
+                "status": state.status.value,
                 "task_id": task_id,
-                "reason": "required_agents_disabled",
+                "reason": state.blocked_reason,
                 "required_disabled_agents": list(missing),
                 "plan": self._plan_payload(state.plan),
             }
 
+        state.status = TaskGatewayStatus.EXECUTING
+        state.blocked_reason = None
+        state.required_disabled_agents = ()
+        self._touch_task(state)
+
         try:
             state.runtime.kit.execute_plan_sync(state.plan)
+        except OrchestrationBudgetExceeded as exc:
+            state.budget_error = exc
+            state.pending_stage = exc.stage
+            state.status = TaskGatewayStatus.REQUIRES_HUMAN_APPROVAL
+            self._touch_task(state)
+            return self._budget_response(
+                exc,
+                task_id=task_id,
+                plan=self._plan_payload(state.plan),
+            )
         except ProviderRecoverableError as exc:
             state.pending_error = exc
             state.pending_stage = "execution"
-            return self._fallback_response(
+            response = self._fallback_response(
                 exc,
                 state.runtime,
                 task_id=task_id,
                 stage="execution",
                 plan=self._plan_payload(state.plan),
             )
+            self._record_task_fallback_response(state, response)
+            return response
         except ProviderError as exc:
+            self._record_task_failure(
+                state,
+                error=exc,
+                stage="execution",
+            )
             return self._provider_error_response(
                 exc,
                 task_id=task_id,
                 stage="execution",
                 plan=self._plan_payload(state.plan),
             )
+        except Exception as exc:
+            state.status = TaskGatewayStatus.FAILED
+            state.failure = {
+                "reason": "execution_error",
+                "stage": "execution",
+                "error_type": exc.__class__.__name__,
+                "message": str(exc),
+            }
+            self._touch_task(state)
+            raise
 
-        state.completed = True
+        state.status = TaskGatewayStatus.COMPLETED
+        state.pending_stage = None
+        state.failure = None
+        self._touch_task(state)
         return {
-            "status": "completed",
+            "status": state.status.value,
             "task_id": task_id,
             "provider": state.runtime.current_target.provider,
             "plan": self._plan_payload(state.plan),
+        }
+
+    def _record_task_fallback_response(
+        self,
+        state: TaskGatewayState,
+        response: dict[str, Any],
+    ) -> None:
+        if response.get("status") == "fallback_required":
+            state.status = TaskGatewayStatus.FALLBACK_PENDING
+            state.failure = None
+        else:
+            state.status = TaskGatewayStatus.FAILED
+            state.failure = {
+                "reason": "provider_error",
+                "stage": state.pending_stage,
+                "provider": response.get("provider"),
+                "error_type": response.get("error_type"),
+                "message": response.get("message"),
+            }
+            state.pending_error = None
+            if state.plan is not None:
+                state.plan.execution_status = "failed"
+                state.runtime.kit._persist_trace(state.plan, "failed")
+        self._touch_task(state)
+
+    def _record_task_failure(
+        self,
+        state: TaskGatewayState,
+        *,
+        error: ProviderError,
+        stage: str,
+    ) -> None:
+        state.status = TaskGatewayStatus.FAILED
+        state.pending_stage = stage
+        state.failure = {
+            "reason": "provider_error",
+            "stage": stage,
+            "provider": error.provider,
+            "error_type": error.__class__.__name__,
+            "message": str(error),
+        }
+        if state.plan is not None:
+            state.plan.execution_status = "failed"
+            state.runtime.kit._persist_trace(state.plan, "failed")
+        self._touch_task(state)
+
+    @staticmethod
+    def _budget_response(
+        error: OrchestrationBudgetExceeded,
+        **context: Any,
+    ) -> dict[str, Any]:
+        return {
+            **error.to_dict(),
+            **context,
         }
 
     def _fallback_response(
@@ -412,18 +604,66 @@ class AgentDevKitGateway:
         self,
         session_id: str,
     ) -> ConversationGatewayState:
+        self.cleanup_sessions()
         try:
-            return self._conversations[session_id]
+            state = self._conversations[session_id]
         except KeyError as exc:
             raise ValueError(
-                f"Unknown conversation '{session_id}'."
+                f"Unknown or expired conversation '{session_id}'."
             ) from exc
+        state.last_accessed_at = self._clock()
+        return state
 
     def _task_state(self, task_id: str) -> TaskGatewayState:
+        self.cleanup_sessions()
         try:
-            return self._tasks[task_id]
+            state = self._tasks[task_id]
         except KeyError as exc:
-            raise ValueError(f"Unknown task '{task_id}'.") from exc
+            raise ValueError(
+                f"Unknown or expired task '{task_id}'."
+            ) from exc
+        self._touch_task(state)
+        return state
+
+    def cleanup_sessions(self) -> dict[str, int]:
+        """Remove in-memory sessions whose inactivity exceeded the TTL."""
+
+        now = self._clock()
+        ttl = self.config.gateway.session_ttl_seconds
+
+        expired_conversations = [
+            key
+            for key, state in self._conversations.items()
+            if now - state.last_accessed_at >= ttl
+        ]
+        expired_tasks = [
+            key
+            for key, state in self._tasks.items()
+            if now - state.last_accessed_at >= ttl
+        ]
+
+        for key in expired_conversations:
+            del self._conversations[key]
+        for key in expired_tasks:
+            del self._tasks[key]
+
+        return {
+            "conversations": len(expired_conversations),
+            "tasks": len(expired_tasks),
+        }
+
+    def _ensure_session_capacity(self) -> None:
+        self.cleanup_sessions()
+        current = len(self._conversations) + len(self._tasks)
+        limit = self.config.gateway.max_sessions
+        if current >= limit:
+            raise RuntimeError(
+                "Gateway session limit reached. Reset a conversation, wait "
+                "for TTL cleanup, or increase gateway.max_sessions."
+            )
+
+    def _touch_task(self, state: TaskGatewayState) -> None:
+        state.last_accessed_at = self._clock()
 
     @staticmethod
     def _new_id(prefix: str) -> str:
@@ -493,11 +733,21 @@ class AgentDevKitGateway:
             ),
             "notes": plan.notes,
             "is_complete": plan.is_complete,
+            "execution_status": plan.execution_status,
+            "provider_calls": plan.provider_calls,
+            "calls_avoided_by_reuse": plan.calls_avoided_by_reuse,
             "orchestration_trace": (
                 {
                     "request_fingerprint": trace.request_fingerprint,
                     "classification": trace.classification,
                     "model_calls": trace.model_calls,
+                    "provider_calls": trace.provider_calls,
+                    "calls_avoided_by_reuse": trace.calls_avoided_by_reuse,
+                    "deduplicated_context_items": trace.deduplicated_context_items,
+                    "context_chars_total": trace.context_chars_total,
+                    "max_context_chars_observed": trace.max_context_chars_observed,
+                    "context_truncations": trace.context_truncations,
+                    "budget_events": list(trace.budget_events),
                     "handoffs": trace.handoffs,
                     "revisits": trace.revisits,
                     "status": trace.status,

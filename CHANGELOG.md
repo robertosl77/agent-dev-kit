@@ -19,9 +19,17 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - orquestación por riesgo con subgrafo mínimo suficiente;
 - decisión explícita de inclusión/omisión para cada especialista habilitado;
 - gates determinísticos para riesgos y artefactos durables;
+- preclasificación independiente de riesgos críticos, además de la clasificación de Triage;
+- contratos estrictos para risk flags, fases y artefactos durables;
+- policies determinísticas por proyecto que sólo pueden endurecer el routing;
+- planner Triage aislado sin handoffs/tools y structured output real cuando el provider lo soporta;
+- schema estricto de `TaskPlan` con un único intento controlado de reparación;
 - fases explícitas por nodo (discovery/design/implementation/validation/documentation/release);
+- budgets duros para tamaño del DAG, provider calls, revisitas, contexto y evidencia;
+- reutilización intra-task de outputs equivalentes y deduplicación/truncado local de contexto;
 - contexto reducido por nodo en lugar de reenviar el pedido completo;
 - trazas estructuradas con fingerprint, llamadas, revisitas y duración;
+- trazas con sandbox de path, retención, lectura incremental, locking y persistencia de estados no exitosos;
 - telemetría runtime local no versionada;
 - candidatos de mejora derivados de evidencia, siempre con revisión humana;
 - plantillas configurables para especificaciones funcionales/técnicas y otros artefactos;
@@ -51,7 +59,10 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - errores de provider normalizados;
 - cuota/rate limit/indisponibilidad;
 - fallback explícito con aprobación;
-- reanudación de DAG desde nodos pendientes.
+- reanudación de DAG desde nodos pendientes;
+- máquina de estados explícita del Gateway para planning/execution/fallback/blocked/failed/completed;
+- estado `requires_human_approval` ante exceso de budgets;
+- TTL por inactividad y límite total configurable de sesiones del Gateway.
 
 ### MCP
 
@@ -70,6 +81,9 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
 ### Git workflow
 
+- enforcement obligatorio de mutaciones Git soportadas mediante `GitMutationGateway`;
+- override humano reemplazado por autorización scoped + verificador externo;
+- registro explícito de tools Git mutantes con política `git_policy_guard`;
 - política Git configurable por proyecto consumidor;
 - `main`/producción y rama de integración separadas;
 - ramas de tarea obligatoriamente creadas desde integración;
@@ -114,7 +128,11 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - documentación funcional y técnica;
 - suite automatizada;
 - smoke test end-to-end estilo Librería Inglés;
-- GitHub Actions CI.
+- rango compatible explícito `openai-agents>=0.23.1,<0.24`;
+- CI específico del provider OpenAI sin consumo de APIs externas;
+- build de wheel + sdist e instalación del wheel en entorno limpio;
+- smoke del artefacto distribuible: import, package data, CLI y MCP;
+- GitHub Actions CI con jobs separados para suite, provider y package smoke.
 
 ### Limitaciones conocidas
 
@@ -122,4 +140,8 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - otros providers requieren registrar un adaptador;
 - Streamable HTTP se limita a loopback: acceso remoto requiere túnel MCP
   confiable o proxy autenticado;
-- publicación en un índice de paquetes queda para una etapa posterior.
+- publicación en un índice de paquetes queda para una etapa posterior;
+- las sesiones de conversación/tarea del Gateway son in-memory y se pierden al reiniciar el proceso;
+- conversaciones largas todavía no aplican compaction/sliding window;
+- nodos independientes del DAG se ejecutan secuencialmente en v0.1.0;
+- métricas de tokens/costo reales dependen de una evolución posterior del contrato de providers.

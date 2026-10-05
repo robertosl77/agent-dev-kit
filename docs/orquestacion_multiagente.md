@@ -58,6 +58,28 @@ El DAG representa:
 - qué resultados deben pasar a los siguientes;
 - qué quedó completado o bloqueado.
 
+## Planner aislado y salida estructurada
+
+La planificación no reutiliza el Triage conversacional. El runtime crea una
+instancia separada, `Agent Triage Planner`, sin handoffs ni herramientas. De
+esta forma el grafo permanente de capacidades no puede interferir con la fase
+que construye el DAG.
+
+Cuando el provider soporta structured output, el planner usa
+`StructuredTaskPlan` como contrato tipado. OpenAI lo expone mediante
+`output_type`, por lo que la salida se valida en el provider antes de llegar al
+orquestador.
+
+Para providers sin soporte nativo se mantiene un fallback textual controlado:
+
+1. la salida se parsea con el mismo schema estricto;
+2. si falla, se permite exactamente un intento de reparación;
+3. si vuelve a fallar, la planificación termina con error;
+4. cualquier handoff inesperado durante planning se rechaza sin reparación.
+
+El contrato estricto exige todos los campos del plan y rechaza campos
+desconocidos, tipos incorrectos y valores fuera de los enums del orquestador.
+
 ## Ejecución inicial
 
 La versión inicial ejecuta los nodos listos de manera secuencial.

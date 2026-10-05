@@ -5,6 +5,8 @@ from agent_dev_kit.project_config import (
 )
 from agent_dev_kit.provider_config import ProviderConfig
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider
+from agent_dev_kit.git_mutation import GitMutationGateway
+from agent_dev_kit.git_policy import GitPolicyGuard, GitWorkflowConfig
 from agent_dev_kit.tooling import ToolRegistry
 
 
@@ -94,3 +96,40 @@ def test_unregistered_tool_fails_explicitly():
         assert "github_issues" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+
+def test_git_mutation_tool_registration_marks_policy_enforcement():
+    registry = ToolRegistry()
+    gateway = GitMutationGateway(
+        GitPolicyGuard(GitWorkflowConfig()),
+        lambda operation, arguments: None,
+    )
+
+    handle = registry.register_git_mutation(
+        "github_write",
+        provider="fake",
+        gateway=gateway,
+        build_native=lambda guarded_gateway: {
+            "gateway": guarded_gateway,
+        },
+    )
+
+    assert handle.effect == "git_mutation"
+    assert handle.enforced_policy == "git_policy_guard"
+    assert handle.native["gateway"] is gateway
+
+
+def test_git_mutation_tool_requires_guarded_gateway():
+    registry = ToolRegistry()
+
+    try:
+        registry.register_git_mutation(
+            "github_write",
+            provider="fake",
+            gateway=object(),
+            build_native=lambda guarded_gateway: object(),
+        )
+    except TypeError as exc:
+        assert "GitMutationGateway" in str(exc)
+    else:
+        raise AssertionError("Expected TypeError")

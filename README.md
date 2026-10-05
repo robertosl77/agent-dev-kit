@@ -6,7 +6,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
-La rama `development` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `development → main`, CI final y creación manual del tag.
+La rama `develop` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `develop → main`, CI final y creación manual del tag.
 
 ## Principios
 
@@ -72,12 +72,18 @@ agent-dev-kit/
 │       ├── cli.py
 │       ├── execution.py
 │       ├── gateway.py
+│       ├── gateway_config.py
+│       ├── git_mutation.py
 │       ├── git_policy.py
 │       ├── mcp_server.py
 │       ├── orchestration.py
+│       ├── orchestration_budget.py
+│       ├── orchestration_policy.py
+│       ├── planner_contract.py
 │       ├── preferences.py
 │       ├── project_config.py
 │       ├── provider_config.py
+│       ├── provider_errors.py
 │       ├── provider_registry.py
 │       ├── routing.py
 │       ├── runtime.py
@@ -127,12 +133,29 @@ provider:
 git_workflow:
   branches:
     production: main
-    integration: development
+    integration: develop
+
+gateway:
+  session_ttl_seconds: 3600
+  max_sessions: 100
 
 orchestration:
   trace:
     enabled: true
     persist_full_request: false
+  budgets:
+    max_dag_nodes: 12
+    max_provider_calls: 24
+    max_revisits: 2
+    max_context_chars: 16000
+    max_dependency_evidence_chars: 8000
+  policies:
+    - id: auth_requires_review
+      when:
+        any_risk_flags:
+          - auth_change
+      require_agents:
+        - reviewer
 
 agents:
   enabled:
@@ -192,6 +215,12 @@ Tests:
 ```bash
 pytest
 ```
+
+El CI de release valida tres superficies independientes:
+
+- `Agent Dev Kit CI / test`;
+- `Agent Dev Kit CI / openai-provider`;
+- `Agent Dev Kit CI / package-smoke`.
 
 Las modernizaciones del framework se gestionan mediante GitHub Issues con códigos `M-xxx`.
 

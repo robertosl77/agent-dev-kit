@@ -240,6 +240,7 @@ orchestration:
     enabled: true
     path: .agent-dev-kit/runtime/traces.jsonl
     persist_full_request: false
+    max_entries: 250
   improvement_candidate_threshold: 4
   document_templates:
     functional_spec: .agent-dev-kit/templates/functional.md
@@ -256,9 +257,175 @@ agents:
 
     assert config.orchestration.trace_enabled is True
     assert config.orchestration.persist_full_request is False
+    assert config.orchestration.trace_max_entries == 250
     assert config.orchestration.improvement_candidate_threshold == 4
     assert (
         config.orchestration.document_templates["functional_spec"]
         == ".agent-dev-kit/templates/functional.md"
     )
     assert config.project_root == tmp_path
+
+
+def test_project_orchestration_policies_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  policies:
+    - id: auth_requires_review
+      when:
+        any_risk_flags:
+          - auth_change
+      require_agents:
+        - reviewer
+
+agents:
+  enabled:
+    - triage
+    - security
+    - reviewer
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert len(config.orchestration.policies) == 1
+    assert config.orchestration.policies[0].id == "auth_requires_review"
+    assert config.orchestration.policies[0].require_agents == ("reviewer",)
+
+
+def test_project_orchestration_policy_schema_is_validated(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  policies:
+    - id: invalid_policy
+      when:
+        any_risk_flags:
+          - auth_change
+      require_agents:
+        - imaginary_agent
+
+agents:
+  enabled:
+    - triage
+""",
+    )
+
+    try:
+        load_project_config(tmp_path)
+    except ValueError as exc:
+        assert "imaginary_agent" in str(exc)
+    else:
+        raise AssertionError("Expected policy schema validation failure")
+
+
+def test_orchestration_budgets_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  budgets:
+    max_dag_nodes: 8
+    max_provider_calls: 16
+    max_revisits: 1
+    max_context_chars: 12000
+    max_dependency_evidence_chars: 5000
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    config = load_project_config(tmp_path)
+    budgets = config.orchestration.budgets
+
+    assert budgets.max_dag_nodes == 8
+    assert budgets.max_provider_calls == 16
+    assert budgets.max_revisits == 1
+    assert budgets.max_context_chars == 12000
+    assert budgets.max_dependency_evidence_chars == 5000
+
+
+def test_orchestration_budget_schema_rejects_invalid_values(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  budgets:
+    max_provider_calls: 0
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    try:
+        load_project_config(tmp_path)
+    except ValueError as exc:
+        assert "max_provider_calls" in str(exc)
+    else:
+        raise AssertionError("Expected budget validation failure")
+
+
+
+def test_gateway_lifecycle_config_is_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+gateway:
+  session_ttl_seconds: 900
+  max_sessions: 25
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.gateway.session_ttl_seconds == 900
+    assert config.gateway.max_sessions == 25
+
+
+def test_gateway_lifecycle_config_rejects_invalid_values(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+gateway:
+  session_ttl_seconds: 0
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    try:
+        load_project_config(tmp_path)
+    except ValueError as exc:
+        assert "session_ttl_seconds" in str(exc)
+    else:
+        raise AssertionError("Expected gateway lifecycle validation failure")

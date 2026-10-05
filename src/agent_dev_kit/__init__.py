@@ -34,6 +34,12 @@ from .agents import (
     create_ux_ui_agent,
 )
 from .provider_config import ProviderConfig, ProviderTargetConfig
+from .planner_contract import (
+    PlannerAgentDecision,
+    PlannerRequestProfile,
+    PlannerTaskNode,
+    StructuredTaskPlan,
+)
 from .preferences import (
     PreferenceCandidate,
     PreferenceProfile,
@@ -56,8 +62,21 @@ from .task_plan import (
 )
 from .provider_registry import ProviderRegistry, build_default_registry
 from .execution import ProviderRuntime
-from .gateway import AgentDevKitGateway
+from .gateway import AgentDevKitGateway, TaskGatewayStatus
+from .gateway_config import GatewayLifecycleConfig
 from .mcp_server import build_mcp_server, run_mcp_server
+from .orchestration_budget import (
+    OrchestrationBudgetConfig,
+    OrchestrationBudgetExceeded,
+)
+from .orchestration_policy import (
+    DurableArtifact,
+    PolicyEvaluation,
+    ProjectRoutingPolicy,
+    RiskFlag,
+    TaskPhase,
+    preclassify_request,
+)
 from .orchestration import (
     AGENT_GATE_GUIDANCE,
     AgentGateDecision,
@@ -74,8 +93,10 @@ from .git_policy import (
     GitPolicyGuard,
     GitPolicyViolation,
     GitWorkflowConfig,
+    HumanAuthorization,
     git_workflow_from_mapping,
 )
+from .git_mutation import GitMutationGateway, GitMutationResult
 from .provider_errors import (
     ProviderAuthenticationError,
     ProviderError,
@@ -94,15 +115,32 @@ __all__ = [
     "AgentProvider",
     "ProviderConfig",
     "ProviderTargetConfig",
+    "StructuredTaskPlan",
+    "PlannerRequestProfile",
+    "PlannerAgentDecision",
+    "PlannerTaskNode",
     "ProviderRuntime",
     "AgentDevKitGateway",
+    "TaskGatewayStatus",
+    "GatewayLifecycleConfig",
     "build_mcp_server",
     "run_mcp_server",
     "GitPolicyGuard",
     "GitPolicyViolation",
     "GitWorkflowConfig",
+    "HumanAuthorization",
+    "GitMutationGateway",
+    "GitMutationResult",
     "git_workflow_from_mapping",
     "AGENT_GATE_GUIDANCE",
+    "OrchestrationBudgetConfig",
+    "OrchestrationBudgetExceeded",
+    "RiskFlag",
+    "TaskPhase",
+    "DurableArtifact",
+    "ProjectRoutingPolicy",
+    "PolicyEvaluation",
+    "preclassify_request",
     "AgentGateDecision",
     "OrchestrationConfig",
     "OrchestrationImprovementCandidate",

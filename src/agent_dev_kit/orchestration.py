@@ -2,9 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from threading import Lock
+from typing import Any, Iterable, Iterator, Mapping
+
+from agent_dev_kit.orchestration_budget import (
+    OrchestrationBudgetConfig,
+    orchestration_budget_from_mapping,
+)
+from agent_dev_kit.orchestration_policy import (
+    ARTIFACT_REQUIRED_AGENTS,
+    RISK_REQUIRED_AGENTS,
+    ProjectRoutingPolicy,
+    project_policies_from_mapping,
+    validate_profile_contracts,
+)
 
 
 AGENT_GATE_GUIDANCE: dict[str, str] = {
@@ -76,28 +91,12 @@ AGENT_GATE_GUIDANCE: dict[str, str] = {
 
 
 RISK_REQUIRED_AGENT: dict[str, str] = {
-    "functional_ambiguity": "product",
-    "backlog_coordination": "pmo",
-    "cross_layer": "architecture",
-    "ux_change": "ux_ui",
-    "backend_change": "backend",
-    "frontend_change": "frontend",
-    "persistence_change": "database",
-    "security_surface": "security",
-    "behavior_regression": "testing",
-    "technical_review": "reviewer",
-    "deployment_change": "devops",
-    "performance_risk": "performance",
-    "runtime_reliability": "observability",
-    "analytics_data": "data",
+    risk: agents[0] for risk, agents in RISK_REQUIRED_AGENTS.items()
 }
 
-
 ARTIFACT_REQUIRED_AGENT: dict[str, str] = {
-    "functional_spec": "product",
-    "technical_spec": "architecture",
-    "adr": "architecture",
-    "runbook": "devops",
+    artifact: agents[0]
+    for artifact, agents in ARTIFACT_REQUIRED_AGENTS.items()
 }
 
 
@@ -122,8 +121,13 @@ class OrchestrationConfig:
     trace_enabled: bool = True
     trace_path: str = ".agent-dev-kit/runtime/orchestration-traces.jsonl"
     persist_full_request: bool = False
+    trace_max_entries: int = 1000
     improvement_candidate_threshold: int = 3
     document_templates: Mapping[str, str] = field(default_factory=dict)
+    policies: tuple[ProjectRoutingPolicy, ...] = ()
+    budgets: OrchestrationBudgetConfig = field(
+        default_factory=OrchestrationBudgetConfig
+    )
 
 
 @dataclass(slots=True)
@@ -136,8 +140,17 @@ class OrchestrationTrace:
     agent_decisions: tuple[AgentGateDecision, ...]
     dag: tuple[dict[str, Any], ...]
     routing_fingerprint: str = ""
+    independent_risk_flags: tuple[str, ...] = ()
+    policy_activations: tuple[str, ...] = ()
     full_request: str | None = None
     model_calls: int = 0
+    provider_calls: int = 0
+    calls_avoided_by_reuse: int = 0
+    deduplicated_context_items: int = 0
+    context_chars_total: int = 0
+    max_context_chars_observed: int = 0
+    context_truncations: int = 0
+    budget_events: list[dict[str, Any]] = field(default_factory=list)
     handoffs: int = 0
     revisits: int = 0
     node_attempts: dict[str, int] = field(default_factory=dict)
@@ -145,19 +158,29 @@ class OrchestrationTrace:
     status: str = "planned"
     human_overrides: list[str] = field(default_factory=list)
     persisted: bool = False
+    last_persisted_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "request_summary": self.request_summary,
+            "request_summary": sanitize_trace_summary(self.request_summary),
             "request_fingerprint": self.request_fingerprint,
             "classification": self.classification,
             "routing_fingerprint": self.routing_fingerprint,
             "risk_flags": list(self.risk_flags),
+            "independent_risk_flags": list(self.independent_risk_flags),
+            "policy_activations": list(self.policy_activations),
             "durable_artifacts": list(self.durable_artifacts),
             "agent_decisions": [asdict(item) for item in self.agent_decisions],
             "dag": list(self.dag),
             "full_request": self.full_request,
             "model_calls": self.model_calls,
+            "provider_calls": self.provider_calls,
+            "calls_avoided_by_reuse": self.calls_avoided_by_reuse,
+            "deduplicated_context_items": self.deduplicated_context_items,
+            "context_chars_total": self.context_chars_total,
+            "max_context_chars_observed": self.max_context_chars_observed,
+            "context_truncations": self.context_truncations,
+            "budget_events": list(self.budget_events),
             "handoffs": self.handoffs,
             "revisits": self.revisits,
             "node_attempts": dict(self.node_attempts),
@@ -175,35 +198,147 @@ class OrchestrationImprovementCandidate:
     message: str
 
 
-class OrchestrationTraceStore:
-    """Append-only local JSONL trace storage. Raw traces are not Git history."""
+_TRACE_LOCKS_GUARD = Lock()
+_TRACE_LOCKS: dict[str, Lock] = {}
+_TRACE_SECRET_PATTERN = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)"
+    r"\s*[:=]\s*([^\s,;]+)"
+)
 
-    def __init__(self, path: str | Path) -> None:
+
+def sanitize_trace_summary(value: str, *, max_chars: int = 500) -> str:
+    """Keep trace summaries single-line, bounded and free of obvious secrets."""
+
+    cleaned = "".join(
+        character if character.isprintable() else " "
+        for character in str(value)
+    )
+    cleaned = " ".join(cleaned.split())
+    cleaned = _TRACE_SECRET_PATTERN.sub(r"\1=[REDACTED]", cleaned)
+    if len(cleaned) <= max_chars:
+        return cleaned
+    marker = "...[truncated]"
+    return cleaned[: max(0, max_chars - len(marker))] + marker
+
+
+def resolve_project_trace_path(
+    project_root: str | Path,
+    configured_path: str | Path,
+) -> Path:
+    """Resolve a trace file while preventing writes outside the project root."""
+
+    root = Path(project_root).resolve()
+    configured = Path(configured_path)
+    candidate = configured if configured.is_absolute() else root / configured
+    resolved = candidate.resolve()
+
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            "orchestration.trace.path must resolve inside the project root."
+        ) from exc
+
+    if resolved == root:
+        raise ValueError(
+            "orchestration.trace.path must point to a file inside the "
+            "project root, not to the project directory itself."
+        )
+    return resolved
+
+
+def _lock_for_trace_path(path: Path) -> Lock:
+    key = str(path.resolve())
+    with _TRACE_LOCKS_GUARD:
+        lock = _TRACE_LOCKS.get(key)
+        if lock is None:
+            lock = Lock()
+            _TRACE_LOCKS[key] = lock
+        return lock
+
+
+class OrchestrationTraceStore:
+    """Bounded JSONL trace storage with incremental reads and path-level lock."""
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        max_entries: int = 1000,
+    ) -> None:
+        if max_entries <= 0:
+            raise ValueError("trace max_entries must be > 0.")
         self.path = Path(path)
+        self.max_entries = max_entries
+        self._lock = _lock_for_trace_path(self.path)
 
     def append(self, trace: OrchestrationTrace) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as stream:
-            stream.write(
-                json.dumps(
-                    trace.to_dict(),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                + "\n"
-            )
-        trace.persisted = True
+        payload = json.dumps(
+            trace.to_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as stream:
+                stream.write(payload + "\n")
+            self._enforce_retention_locked()
 
-    def read(self) -> list[dict[str, Any]]:
-        if not self.path.is_file():
-            return []
-        rows: list[dict[str, Any]] = []
+        trace.persisted = True
+        trace.last_persisted_status = trace.status
+
+    def iter_read(
+        self,
+        *,
+        limit: int | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        if limit is not None and limit <= 0:
+            return
+
+        with self._lock:
+            if not self.path.is_file():
+                return
+
+            if limit is None:
+                with self.path.open("r", encoding="utf-8") as stream:
+                    for line in stream:
+                        cleaned = line.strip()
+                        if cleaned:
+                            yield json.loads(cleaned)
+                return
+
+            rows: deque[str] = deque(maxlen=limit)
+            with self.path.open("r", encoding="utf-8") as stream:
+                for line in stream:
+                    cleaned = line.strip()
+                    if cleaned:
+                        rows.append(cleaned)
+            for row in rows:
+                yield json.loads(row)
+
+    def read(
+        self,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        return list(self.iter_read(limit=limit))
+
+    def _enforce_retention_locked(self) -> None:
+        rows: deque[str] = deque(maxlen=self.max_entries)
+        count = 0
         with self.path.open("r", encoding="utf-8") as stream:
             for line in stream:
-                cleaned = line.strip()
-                if cleaned:
-                    rows.append(json.loads(cleaned))
-        return rows
+                if line.strip():
+                    count += 1
+                    rows.append(line)
+
+        if count <= self.max_entries:
+            return
+
+        temporary = self.path.with_name(self.path.name + ".tmp")
+        with temporary.open("w", encoding="utf-8") as stream:
+            stream.writelines(rows)
+        temporary.replace(self.path)
 
 
 def orchestration_config_from_mapping(
@@ -241,14 +376,32 @@ def orchestration_config_from_mapping(
         persist_full_request=bool(
             trace.get("persist_full_request", False)
         ),
+        trace_max_entries=_positive_trace_int(
+            trace.get("max_entries", 1000),
+            "orchestration.trace.max_entries",
+        ),
         improvement_candidate_threshold=threshold,
         document_templates={
             str(key).strip(): str(value).strip()
             for key, value in templates.items()
             if str(key).strip() and str(value).strip()
         },
+        policies=project_policies_from_mapping(data.get("policies")),
+        budgets=orchestration_budget_from_mapping(data.get("budgets")),
     )
 
+
+
+def _positive_trace_int(value: Any, label: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be an integer > 0.")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be an integer > 0.") from exc
+    if parsed <= 0:
+        raise ValueError(f"{label} must be > 0.")
+    return parsed
 
 def fingerprint_request(request: str, classification: str = "") -> str:
     normalized = " ".join(request.lower().split())
@@ -274,6 +427,10 @@ def validate_gate_policy(
     enabled_agents: Iterable[str],
     required_disabled_agents: Iterable[str] = (),
 ) -> None:
+    validate_profile_contracts(
+        risk_flags=profile.risk_flags,
+        durable_artifacts=profile.durable_artifacts,
+    )
     enabled = {normalize_agent_key(value) for value in enabled_agents}
     required_disabled = {
         normalize_agent_key(value) for value in required_disabled_agents
@@ -283,40 +440,27 @@ def validate_gate_policy(
         for item in decisions
     }
 
-    for risk in profile.risk_flags:
-        agent = RISK_REQUIRED_AGENT.get(risk)
-        if not agent:
-            continue
+    def require_agent(agent: str, source: str) -> None:
         if agent not in enabled:
             if agent not in required_disabled:
                 raise ValueError(
-                    f"Risk '{risk}' requires disabled agent '{agent}', "
+                    f"{source} requires disabled agent '{agent}', "
                     "which must be declared in required_disabled_agents."
                 )
-            continue
+            return
         decision = by_agent.get(agent)
         if decision is None or not decision.selected:
             raise ValueError(
-                f"Risk '{risk}' requires selected agent '{agent}'."
+                f"{source} requires selected agent '{agent}'."
             )
 
+    for risk in profile.risk_flags:
+        for agent in RISK_REQUIRED_AGENTS[risk]:
+            require_agent(agent, f"Risk '{risk}'")
+
     for artifact in profile.durable_artifacts:
-        agent = ARTIFACT_REQUIRED_AGENT.get(artifact)
-        if agent:
-            if agent not in enabled:
-                if agent not in required_disabled:
-                    raise ValueError(
-                        f"Artifact '{artifact}' requires disabled agent "
-                        f"'{agent}', which must be declared in "
-                        "required_disabled_agents."
-                    )
-            else:
-                decision = by_agent.get(agent)
-                if decision is None or not decision.selected:
-                    raise ValueError(
-                        f"Artifact '{artifact}' requires selected agent "
-                        f"'{agent}'."
-                    )
+        for agent in ARTIFACT_REQUIRED_AGENTS.get(artifact, ()):
+            require_agent(agent, f"Artifact '{artifact}'")
 
     if profile.durable_artifacts:
         if "documentation" not in enabled:

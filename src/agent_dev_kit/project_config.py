@@ -6,6 +6,10 @@ import yaml
 
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.provider_config import ProviderConfig, ProviderTargetConfig
+from agent_dev_kit.gateway_config import (
+    GatewayLifecycleConfig,
+    gateway_lifecycle_from_mapping,
+)
 from agent_dev_kit.git_policy import (
     GitWorkflowConfig,
     git_workflow_from_mapping,
@@ -45,6 +49,9 @@ class ProjectAgentDevKitConfig:
     git_workflow: GitWorkflowConfig = field(default_factory=GitWorkflowConfig)
     orchestration: OrchestrationConfig = field(
         default_factory=OrchestrationConfig
+    )
+    gateway: GatewayLifecycleConfig = field(
+        default_factory=GatewayLifecycleConfig
     )
     project_root: Path | None = None
     preference_config: ProjectPreferenceConfig = field(
@@ -175,6 +182,7 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
         orchestration=orchestration_config_from_mapping(
             project_data.get("orchestration")
         ),
+        gateway=gateway_lifecycle_from_mapping(project_data.get("gateway")),
         project_root=root,
         preference_config=load_project_preference_config(
             config_dir / "preferences.yaml"

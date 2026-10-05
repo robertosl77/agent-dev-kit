@@ -174,6 +174,49 @@ completados.
 
 Consulta el estado actual de un DAG.
 
+## Estado y lifecycle del Gateway
+
+Las tareas mantienen un estado explícito dentro del Gateway:
+
+```text
+pending
+  ↓
+planning
+  ↓
+executing
+  ↓
+completed
+```
+
+Las salidas laterales son `fallback_pending`, `blocked`, `failed` y
+`requires_human_approval`. El estado queda almacenado en la sesión de tarea:
+una tarea que devolvió `blocked` no vuelve a aparecer como `in_progress` al
+consultar `agent_dev_kit_task_status`.
+
+La respuesta que solicita una decisión de fallback conserva
+`status=fallback_required` para indicar la acción que debe tomar el cliente;
+mientras espera esa decisión, `agent_dev_kit_task_status` informa el estado
+persistente `fallback_pending`.
+
+Las sesiones de conversación y tarea son deliberadamente **in-memory** en
+v0.1.0. El proyecto puede limitar su ciclo de vida:
+
+```yaml
+gateway:
+  session_ttl_seconds: 3600
+  max_sessions: 100
+```
+
+El TTL es por inactividad y las consultas válidas renuevan la actividad. El
+Gateway elimina sesiones expiradas de forma lazy antes de operaciones y también
+expone `cleanup_sessions()` para cleanup explícito. `max_sessions` limita el
+total combinado de conversaciones y tareas; al alcanzar el límite se rechaza
+crear una sesión nueva en vez de descartar silenciosamente una existente.
+
+Un restart del proceso descarta todas las sesiones y sus IDs. Las trazas
+persistidas del orquestador sobreviven según su propia política, pero **no**
+reconstituyen automáticamente conversaciones ni tareas del Gateway.
+
 ## Storytime
 
 El usuario escribe desde su cliente habitual:

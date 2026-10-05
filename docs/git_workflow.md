@@ -15,7 +15,7 @@ ejecutarlas.
 main
 ↑ producción / releases
 
-development
+develop
 ↑ integración del siguiente ciclo
 
 feat/t-123-corregir-reporte
@@ -32,19 +32,19 @@ En `.agent-dev-kit/project.yaml`:
 git_workflow:
   branches:
     production: main
-    integration: development
+    integration: develop
 
   protected:
     - main
-    - development
+    - develop
 
   task_branch:
-    base: development
+    base: develop
     naming: "{kind}/{issue}-{slug}"
 
   pull_requests:
-    task_target: development
-    release_source: development
+    task_target: develop
+    release_source: develop
     release_target: main
     require_issue_reference: true
 
@@ -61,9 +61,9 @@ git_workflow:
 ```text
 Issue
   ↓
-sincronizar development
+sincronizar develop
   ↓
-crear rama de tarea desde development
+crear rama de tarea desde develop
   ↓
 trabajo multiagente
   ↓
@@ -75,7 +75,7 @@ Documentation
   ↓
 QA humano
   ↓
-PR rama tarea → development
+PR rama tarea → develop
 ```
 
 Una rama de tarea creada desde `main` debe ser rechazada.
@@ -83,7 +83,7 @@ Una rama de tarea creada desde `main` debe ser rechazada.
 ## Flujo de release
 
 ```text
-development
+develop
       ↓
 release PR
       ↓
@@ -98,7 +98,7 @@ Un PR de tarea normal no puede apuntar directamente a `main`.
 
 ## Protección
 
-`main` y `development` son ramas protegidas por la política lógica.
+`main` y `develop` son ramas protegidas por la política lógica.
 
 Por defecto:
 
@@ -132,7 +132,7 @@ Ejemplo:
 ```python
 guard.validate_task_branch_creation(
     "feat/t-123-report",
-    base_branch="development",
+    base_branch="develop",
     issue_reference="T-123",
     base_is_updated=True,
 )
@@ -142,7 +142,7 @@ guard.validate_task_branch_creation(
 
 La política del framework no reemplaza la protección real del proveedor Git.
 
-Para GitHub se recomienda proteger también `main` y `development` mediante
+Para GitHub se recomienda proteger también `main` y `develop` mediante
 Rulesets o Branch Protection.
 
 Así existen dos barreras:
@@ -185,3 +185,57 @@ La configuración concreta pertenece al consumidor.
 
 Agent Dev Kit define el mecanismo de enforcement; cada proyecto define los
 nombres de sus ramas y su workflow.
+
+
+## Enforcement de mutaciones Git
+
+Las integraciones Git soportadas no deben invocar escrituras externas
+directamente. Deben pasar por `GitMutationGateway`, que valida primero con
+`GitPolicyGuard` y sólo después ejecuta la operación externa.
+
+```text
+agente / tool
+    ↓
+GitMutationGateway
+    ↓
+GitPolicyGuard
+    ↓
+executor Git/GitHub
+    ↓
+Ruleset del proveedor
+```
+
+Para herramientas registradas mediante `ToolRegistry`, las mutaciones Git
+deben usar `register_git_mutation(...)`. Esa vía construye el tool nativo
+alrededor del gateway guardado y deja metadata `effect=git_mutation` y
+`enforced_policy=git_policy_guard`.
+
+Las herramientas externas genéricas registradas con `register(...)` son
+extensiones opacas de confianza. El framework no puede inspeccionar una callback
+arbitraria y descubrir si internamente hace escrituras Git; una integración que
+oculte efectos laterales fuera de la vía soportada queda fuera de la garantía.
+
+## Override humano verificable
+
+El booleano `human_override=True` dejó de ser válido.
+
+Una excepción requiere un `HumanAuthorization` con:
+
+- token opaco;
+- actor humano;
+- scope exacto de la acción;
+- razón opcional.
+
+Además, `GitPolicyGuard` requiere un `authorization_verifier` externo. Sin
+verificador, incluso un objeto `HumanAuthorization` bien formado es rechazado.
+
+Los scopes son específicos, por ejemplo:
+
+```text
+git:direct_write:main
+git:create_task_branch:feat/m-031-enforcement
+git:create_pull_request:release:develop->main
+```
+
+Esto evita que un agente se autoautorice pasando un simple flag y evita reutilizar
+una aprobación para una acción distinta.
