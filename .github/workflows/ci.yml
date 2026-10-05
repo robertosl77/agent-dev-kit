@@ -54,3 +54,47 @@ jobs:
       - name: Run OpenAI provider contract tests
         run: |
           pytest -q tests/test_provider_openai_smoke.py tests/test_provider_contract.py
+
+
+  package-smoke:
+    name: Agent Dev Kit CI / package-smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --sdist
+          test -n "$(ls dist/*.whl)"
+          test -n "$(ls dist/*.tar.gz)"
+
+      - name: Install wheel in clean environment
+        run: |
+          python -m venv /tmp/agent-dev-kit-wheel-smoke
+          wheel="$(realpath "$(ls dist/*.whl)")"
+          /tmp/agent-dev-kit-wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/agent-dev-kit-wheel-smoke/bin/python -m pip install "agent-dev-kit[mcp] @ file://${wheel}"
+
+      - name: Smoke installed artifact
+        run: |
+          /tmp/agent-dev-kit-wheel-smoke/bin/python - <<'PY'
+          from importlib.resources import files
+
+          import agent_dev_kit
+          from agent_dev_kit.cli import build_parser
+          from agent_dev_kit.mcp_server import build_mcp_server
+
+          profile = files("agent_dev_kit").joinpath("profiles/default.yaml")
+          assert profile.is_file(), "profiles/default.yaml missing from wheel"
+          assert build_parser().prog == "agent-dev-kit"
+          assert build_mcp_server(object()) is not None
+          PY
+          /tmp/agent-dev-kit-wheel-smoke/bin/agent-dev-kit --help >/dev/null

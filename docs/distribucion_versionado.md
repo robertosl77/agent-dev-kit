@@ -129,6 +129,21 @@ LibreriaIngles/
 
 El código de los agentes proviene de la dependencia versionada.
 
+## Smoke del artefacto distribuible
+
+El CI no valida únicamente una instalación editable. El job
+`Agent Dev Kit CI / package-smoke`:
+
+1. construye wheel y sdist con `python -m build`;
+2. crea un entorno virtual limpio;
+3. instala el wheel producido con el extra `mcp`;
+4. importa `agent_dev_kit` desde ese entorno;
+5. verifica que `profiles/default.yaml` esté incluido como package data;
+6. valida el entrypoint `agent-dev-kit`;
+7. construye el servidor MCP sin iniciar red ni consumir APIs externas.
+
+Un release no debe publicarse si este smoke falla.
+
 ## Checklist de release
 
 Flujo de release con las ramas actuales:
@@ -136,10 +151,10 @@ Flujo de release con las ramas actuales:
 ```text
 task branches
       ↓
-development
+develop
       ↓ CI verde
 release PR
-development → main
+develop → main
       ↓ CI verde del PR
 merge
       ↓ CI verde de main
@@ -152,9 +167,9 @@ Antes de crear un tag:
 
 1. no debe existir una modernización funcional bloqueante abierta;
 2. `pyproject.toml` debe contener la versión correcta;
-3. toda la suite y el smoke E2E deben pasar en `development`;
+3. toda la suite y el smoke E2E deben pasar en `develop`;
 4. README, CHANGELOG y documentación deben reflejar la estructura real;
-5. debe abrirse un PR de release `development → main`;
+5. debe abrirse un PR de release `develop → main`;
 6. el CI del PR de release debe estar verde;
 7. después del merge, el CI del commit final de `main` debe estar verde;
 8. el tag debe apuntar exactamente a ese commit final de `main`;
