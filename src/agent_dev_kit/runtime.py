@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from hashlib import sha256
 from time import perf_counter
 from typing import Any
 
@@ -13,6 +14,7 @@ from agent_dev_kit.planner_contract import StructuredTaskPlan
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 from agent_dev_kit.tooling import ToolRegistry
 from agent_dev_kit.preferences import PreferenceProfile
+from agent_dev_kit.orchestration_budget import OrchestrationBudgetExceeded
 from agent_dev_kit.orchestration import (
     OrchestrationTrace,
     OrchestrationTraceStore,
@@ -104,7 +106,7 @@ class DevAgentKit:
         *,
         session: Any | None = None,
     ) -> TaskPlan:
-        """Create a validated plan with an isolated Triage planner."""
+        """Create a validated plan within hard orchestration budgets."""
 
         planner = self._require_planner()
         prompt = build_planning_prompt(
@@ -113,6 +115,9 @@ class DevAgentKit:
             available_agents=AVAILABLE_AGENT_KEYS,
             project_policies=self.config.orchestration.policies,
         )
+        self._ensure_prompt_budget(prompt, stage="planning")
+        self._ensure_provider_call_budget(1, stage="planning")
+
         started = perf_counter()
         result = self.provider.run_sync(
             planner,
@@ -125,10 +130,15 @@ class DevAgentKit:
         try:
             plan = self._parse_planner_output(result.output)
         except TaskPlanError as first_error:
+            self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
                 request=request,
                 invalid_output=result.output,
                 error=first_error,
+            )
+            self._ensure_prompt_budget(
+                repair_prompt,
+                stage="planning_repair",
             )
             repaired = self.provider.run_sync(
                 planner,
@@ -147,11 +157,13 @@ class DevAgentKit:
 
         planning_ms = (perf_counter() - started) * 1000
         plan.request = request
+        plan.provider_calls = planning_calls
         plan.validate_orchestration_policy(
             self.agents.keys(),
             request=plan.request,
             project_policies=self.config.orchestration.policies,
         )
+        self._ensure_dag_budget(plan, stage="planning")
         plan.trace = self._build_trace(
             plan,
             request=request,
@@ -166,7 +178,7 @@ class DevAgentKit:
         *,
         session: Any | None = None,
     ) -> TaskPlan:
-        """Async variant of isolated structured planning."""
+        """Async variant of budgeted structured planning."""
 
         planner = self._require_planner()
         prompt = build_planning_prompt(
@@ -175,6 +187,9 @@ class DevAgentKit:
             available_agents=AVAILABLE_AGENT_KEYS,
             project_policies=self.config.orchestration.policies,
         )
+        self._ensure_prompt_budget(prompt, stage="planning")
+        self._ensure_provider_call_budget(1, stage="planning")
+
         started = perf_counter()
         result = await self.provider.run(
             planner,
@@ -187,10 +202,15 @@ class DevAgentKit:
         try:
             plan = self._parse_planner_output(result.output)
         except TaskPlanError as first_error:
+            self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
                 request=request,
                 invalid_output=result.output,
                 error=first_error,
+            )
+            self._ensure_prompt_budget(
+                repair_prompt,
+                stage="planning_repair",
             )
             repaired = await self.provider.run(
                 planner,
@@ -209,11 +229,13 @@ class DevAgentKit:
 
         planning_ms = (perf_counter() - started) * 1000
         plan.request = request
+        plan.provider_calls = planning_calls
         plan.validate_orchestration_policy(
             self.agents.keys(),
             request=plan.request,
             project_policies=self.config.orchestration.policies,
         )
+        self._ensure_dag_budget(plan, stage="planning")
         plan.trace = self._build_trace(
             plan,
             request=request,
@@ -257,24 +279,82 @@ class DevAgentKit:
             strict_schema=True,
         )
 
-    @staticmethod
     def _planning_repair_prompt(
+        self,
         *,
         request: str,
         invalid_output: Any,
         error: TaskPlanError,
     ) -> str:
-        rendered = str(invalid_output)
-        if len(rendered) > 8000:
-            rendered = rendered[:8000] + "...[truncated]"
-        return (
+        budget = self.config.orchestration.budgets.max_context_chars
+        fixed = (
             "Planning repair operation. Do not hand off. The previous planner "
             "output violated the strict TaskPlan contract. Return the complete "
             "corrected TaskPlan only; do not explain the repair.\n\n"
             f"Original request:\n{request}\n\n"
             f"Validation error:\n{error}\n\n"
-            f"Previous output:\n{rendered}"
+            "Previous output:\n"
         )
+        available = budget - len(fixed)
+        if available <= 0:
+            raise OrchestrationBudgetExceeded(
+                budget="max_context_chars",
+                limit=budget,
+                actual=len(fixed),
+                stage="planning_repair",
+                message=(
+                    "Planning repair metadata alone exceeds the context budget."
+                ),
+            )
+        rendered = self._truncate_text(str(invalid_output), available)
+        return fixed + rendered
+
+    def _ensure_provider_call_budget(
+        self,
+        actual: int,
+        *,
+        stage: str,
+    ) -> None:
+        limit = self.config.orchestration.budgets.max_provider_calls
+        if actual > limit:
+            raise OrchestrationBudgetExceeded(
+                budget="max_provider_calls",
+                limit=limit,
+                actual=actual,
+                stage=stage,
+            )
+
+    def _ensure_prompt_budget(
+        self,
+        prompt: str,
+        *,
+        stage: str,
+    ) -> None:
+        limit = self.config.orchestration.budgets.max_context_chars
+        if len(prompt) > limit:
+            raise OrchestrationBudgetExceeded(
+                budget="max_context_chars",
+                limit=limit,
+                actual=len(prompt),
+                stage=stage,
+            )
+
+    def _ensure_dag_budget(
+        self,
+        plan: TaskPlan,
+        *,
+        stage: str,
+    ) -> None:
+        limit = self.config.orchestration.budgets.max_dag_nodes
+        actual = len(plan.nodes)
+        if actual > limit:
+            self._raise_budget(
+                plan,
+                budget="max_dag_nodes",
+                limit=limit,
+                actual=actual,
+                stage=stage,
+            )
 
     def execute_plan_sync(
         self,
