@@ -58,6 +58,11 @@ class TaskPlan:
     independent_risk_flags: tuple[str, ...] = ()
     policy_activations: tuple[str, ...] = ()
     policy_required_agents: tuple[str, ...] = ()
+    provider_calls: int = 0
+    revisits: int = 0
+    node_attempts: dict[str, int] = field(default_factory=dict)
+    calls_avoided_by_reuse: int = 0
+    execution_status: str = "planned"
 
     @classmethod
     def from_json(
