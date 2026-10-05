@@ -1,3 +1,5 @@
+import asyncio
+
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.planner_contract import StructuredTaskPlan
 from agent_dev_kit.providers.provider_openai import OpenAIProvider
@@ -74,7 +76,7 @@ def test_openai_provider_normalizes_sync_result_without_network():
     assert result.active_agent.native is backend.native
 
 
-async def test_openai_provider_normalizes_async_result_without_network():
+def test_openai_provider_normalizes_async_result_without_network():
     provider = OpenAIProvider()
     provider._runner = _FakeRunner
 
@@ -85,7 +87,7 @@ async def test_openai_provider_normalizes_async_result_without_network():
         )
     )
 
-    result = await provider.run(backend, "hello")
+    result = asyncio.run(provider.run(backend, "hello"))
 
     assert result.output == "echo:hello"
     assert result.active_agent.name == "Agent Backend"
