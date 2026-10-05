@@ -6,7 +6,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
-La rama `develop` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `development → main`, CI final y creación manual del tag.
+La rama `develop` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `develop → main`, CI final y creación manual del tag.
 
 ## Principios
 
@@ -133,6 +133,12 @@ orchestration:
   trace:
     enabled: true
     persist_full_request: false
+  budgets:
+    max_dag_nodes: 12
+    max_provider_calls: 24
+    max_revisits: 2
+    max_context_chars: 16000
+    max_dependency_evidence_chars: 8000
   policies:
     - id: auth_requires_review
       when:
