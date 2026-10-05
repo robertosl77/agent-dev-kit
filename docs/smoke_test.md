@@ -112,6 +112,6 @@ No consume tokens ni APIs externas.
 ## Criterio de salida
 
 Para el release v0.1.0, este escenario debe pasar dentro de GitHub Actions junto
-con toda la suite en `development`, en el PR de release
-`development → main` y finalmente sobre el commit de `main` que recibirá el
+con toda la suite en `develop`, en el PR de release
+`develop → main` y finalmente sobre el commit de `main` que recibirá el
 tag.
