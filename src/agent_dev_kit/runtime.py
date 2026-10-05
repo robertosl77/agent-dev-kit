@@ -20,8 +20,10 @@ from agent_dev_kit.orchestration import (
     OrchestrationTraceStore,
     fingerprint_request,
     fingerprint_routing,
+    resolve_project_trace_path,
 )
 from agent_dev_kit.task_plan import (
+    DisabledAgentRequiredError,
     TaskNode,
     TaskPlan,
     TaskPlanError,
@@ -50,10 +52,14 @@ class DevAgentKit:
     ) -> "DevAgentKit":
         trace_store = None
         if config.orchestration.trace_enabled and config.project_root is not None:
-            trace_path = (
-                config.project_root / config.orchestration.trace_path
+            trace_path = resolve_project_trace_path(
+                config.project_root,
+                config.orchestration.trace_path,
             )
-            trace_store = OrchestrationTraceStore(trace_path)
+            trace_store = OrchestrationTraceStore(
+                trace_path,
+                max_entries=config.orchestration.trace_max_entries,
+            )
 
         agents = create_enabled_agents(
             provider,
@@ -163,13 +169,13 @@ class DevAgentKit:
             request=plan.request,
             project_policies=self.config.orchestration.policies,
         )
-        self._ensure_dag_budget(plan, stage="planning")
         plan.trace = self._build_trace(
             plan,
             request=request,
             planning_ms=planning_ms,
             planning_calls=planning_calls,
         )
+        self._ensure_dag_budget(plan, stage="planning")
         return plan
 
     async def plan_task(
@@ -235,13 +241,13 @@ class DevAgentKit:
             request=plan.request,
             project_policies=self.config.orchestration.policies,
         )
-        self._ensure_dag_budget(plan, stage="planning")
         plan.trace = self._build_trace(
             plan,
             request=request,
             planning_ms=planning_ms,
             planning_calls=planning_calls,
         )
+        self._ensure_dag_budget(plan, stage="planning")
         return plan
 
     def _require_planner(self) -> AgentHandle:
@@ -364,11 +370,24 @@ class DevAgentKit:
     ) -> TaskPlan:
         """Execute ready DAG nodes within deterministic hard budgets."""
 
-        self._prepare_plan_execution(plan)
+        try:
+            self._prepare_plan_execution(plan)
+        except OrchestrationBudgetExceeded:
+            raise
+        except DisabledAgentRequiredError:
+            plan.execution_status = "blocked"
+            self._persist_trace(plan, "blocked")
+            raise
+        except Exception:
+            plan.execution_status = "failed"
+            self._persist_trace(plan, "failed")
+            raise
 
         while not plan.is_complete:
             ready = plan.ready_nodes()
             if not ready:
+                plan.execution_status = "failed"
+                self._persist_trace(plan, "failed")
                 raise TaskPlanError(
                     "Task plan has pending nodes but none are executable."
                 )
@@ -389,11 +408,24 @@ class DevAgentKit:
     ) -> TaskPlan:
         """Async provider execution with deterministic hard budgets."""
 
-        self._prepare_plan_execution(plan)
+        try:
+            self._prepare_plan_execution(plan)
+        except OrchestrationBudgetExceeded:
+            raise
+        except DisabledAgentRequiredError:
+            plan.execution_status = "blocked"
+            self._persist_trace(plan, "blocked")
+            raise
+        except Exception:
+            plan.execution_status = "failed"
+            self._persist_trace(plan, "failed")
+            raise
 
         while not plan.is_complete:
             ready = plan.ready_nodes()
             if not ready:
+                plan.execution_status = "failed"
+                self._persist_trace(plan, "failed")
                 raise TaskPlanError(
                     "Task plan has pending nodes but none are executable."
                 )
@@ -443,10 +475,10 @@ class DevAgentKit:
             node.status = "pending"
             plan.execution_status = "interrupted"
             if plan.trace is not None:
-                plan.trace.status = "interrupted"
                 plan.trace.node_durations_ms[node.id] = (
                     perf_counter() - started
                 ) * 1000
+            self._persist_trace(plan, "interrupted")
             raise
 
         self._complete_node_result(
@@ -481,10 +513,10 @@ class DevAgentKit:
             node.status = "pending"
             plan.execution_status = "interrupted"
             if plan.trace is not None:
-                plan.trace.status = "interrupted"
                 plan.trace.node_durations_ms[node.id] = (
                     perf_counter() - started
                 ) * 1000
+            self._persist_trace(plan, "interrupted")
             raise
 
         self._complete_node_result(
@@ -560,10 +592,10 @@ class DevAgentKit:
             plan.execution_status = "blocked"
             if plan.trace is not None:
                 plan.trace.handoffs += 1
-                plan.trace.status = "blocked"
                 plan.trace.node_durations_ms[node.id] = (
                     perf_counter() - started
                 ) * 1000
+            self._persist_trace(plan, "blocked")
             raise TaskPlanError(
                 f"Node '{node.id}' handed off unexpectedly from "
                 f"'{handle.name}' to '{result.active_agent.name}'. "
@@ -770,10 +802,8 @@ class DevAgentKit:
         if node is not None:
             node.status = "blocked"
         if plan.trace is not None:
-            plan.trace.status = error.status
             plan.trace.budget_events.append(error.to_dict())
-            if self.trace_store is not None and not plan.trace.persisted:
-                self.trace_store.append(plan.trace)
+        self._persist_trace(plan, error.status)
         raise error
 
     def _build_trace(
@@ -823,12 +853,19 @@ class DevAgentKit:
 
     def _complete_trace(self, plan: TaskPlan) -> None:
         plan.execution_status = "completed"
-        if plan.trace is None:
+        self._persist_trace(plan, "completed")
+
+    def _persist_trace(self, plan: TaskPlan, status: str) -> None:
+        trace = plan.trace
+        if trace is None:
             return
 
-        plan.trace.status = "completed"
-        if self.trace_store is not None and not plan.trace.persisted:
-            self.trace_store.append(plan.trace)
+        trace.status = status
+        if (
+            self.trace_store is not None
+            and trace.last_persisted_status != status
+        ):
+            self.trace_store.append(trace)
 
     def _resolve_start_agent(self, start_agent: str | None) -> AgentHandle:
         if start_agent is not None:
