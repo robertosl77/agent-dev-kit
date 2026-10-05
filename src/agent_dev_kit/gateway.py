@@ -215,6 +215,7 @@ class AgentDevKitGateway:
     def reset_chat(self, session_id: str) -> dict[str, Any]:
         """Delete one gateway conversation and its transcript."""
 
+        self.cleanup_sessions()
         if session_id not in self._conversations:
             raise ValueError(f"Unknown conversation '{session_id}'.")
 
@@ -270,6 +271,9 @@ class AgentDevKitGateway:
                 "stage": stage,
                 "provider": provider,
             }
+            if state.plan is not None:
+                state.plan.execution_status = "failed"
+                state.runtime.kit._persist_trace(state.plan, "failed")
             self._touch_task(state)
             return {
                 "status": "fallback_rejected",
@@ -508,6 +512,9 @@ class AgentDevKitGateway:
                 "message": response.get("message"),
             }
             state.pending_error = None
+            if state.plan is not None:
+                state.plan.execution_status = "failed"
+                state.runtime.kit._persist_trace(state.plan, "failed")
         self._touch_task(state)
 
     def _record_task_failure(
@@ -526,6 +533,9 @@ class AgentDevKitGateway:
             "error_type": error.__class__.__name__,
             "message": str(error),
         }
+        if state.plan is not None:
+            state.plan.execution_status = "failed"
+            state.runtime.kit._persist_trace(state.plan, "failed")
         self._touch_task(state)
 
     @staticmethod
