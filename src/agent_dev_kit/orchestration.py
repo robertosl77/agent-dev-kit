@@ -201,8 +201,8 @@ class OrchestrationImprovementCandidate:
 _TRACE_LOCKS_GUARD = Lock()
 _TRACE_LOCKS: dict[str, Lock] = {}
 _TRACE_SECRET_PATTERN = re.compile(
-    r"(?i)\\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)"
-    r"\\s*[:=]\\s*([^\\s,;]+)"
+    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)"
+    r"\s*[:=]\s*([^\s,;]+)"
 )
 
 
@@ -214,7 +214,7 @@ def sanitize_trace_summary(value: str, *, max_chars: int = 500) -> str:
         for character in str(value)
     )
     cleaned = " ".join(cleaned.split())
-    cleaned = _TRACE_SECRET_PATTERN.sub(r"\\1=[REDACTED]", cleaned)
+    cleaned = _TRACE_SECRET_PATTERN.sub(r"\1=[REDACTED]", cleaned)
     if len(cleaned) <= max_chars:
         return cleaned
     marker = "...[truncated]"
