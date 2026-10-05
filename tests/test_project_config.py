@@ -323,3 +323,59 @@ agents:
         assert "imaginary_agent" in str(exc)
     else:
         raise AssertionError("Expected policy schema validation failure")
+
+
+def test_orchestration_budgets_are_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  budgets:
+    max_dag_nodes: 8
+    max_provider_calls: 16
+    max_revisits: 1
+    max_context_chars: 12000
+    max_dependency_evidence_chars: 5000
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    config = load_project_config(tmp_path)
+    budgets = config.orchestration.budgets
+
+    assert budgets.max_dag_nodes == 8
+    assert budgets.max_provider_calls == 16
+    assert budgets.max_revisits == 1
+    assert budgets.max_context_chars == 12000
+    assert budgets.max_dependency_evidence_chars == 5000
+
+
+def test_orchestration_budget_schema_rejects_invalid_values(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+orchestration:
+  budgets:
+    max_provider_calls: 0
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    try:
+        load_project_config(tmp_path)
+    except ValueError as exc:
+        assert "max_provider_calls" in str(exc)
+    else:
+        raise AssertionError("Expected budget validation failure")
