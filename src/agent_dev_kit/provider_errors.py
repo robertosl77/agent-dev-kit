@@ -68,12 +68,42 @@ def normalize_provider_exception(
     if status is None:
         response = getattr(exc, "response", None)
         status = getattr(response, "status_code", None)
+    if status is None:
+        # google-genai errors expose the HTTP status as ``code``.
+        code = getattr(exc, "code", None)
+        if isinstance(code, int):
+            status = code
 
     class_name = exc.__class__.__name__.lower()
     message = str(exc)
     lowered = message.lower()
 
-    if status in {401, 403} or "authentication" in class_name:
+    missing_key_signal = any(
+        token in lowered
+        for token in (
+            "missing credentials",
+            "could not resolve authentication method",
+            "missing key inputs",
+        )
+    )
+    if missing_key_signal:
+        return ProviderAuthenticationError(
+            f"No API key available for provider '{provider}'.",
+            provider=provider,
+            original=exc,
+        )
+
+    invalid_key_signal = any(
+        token in lowered
+        for token in (
+            "api key not valid",
+            "api_key_invalid",
+            "invalid x-api-key",
+            "invalid api key",
+            "incorrect api key",
+        )
+    )
+    if status in {401, 403} or "authentication" in class_name or invalid_key_signal:
         return ProviderAuthenticationError(
             f"Authentication failed for provider '{provider}'.",
             provider=provider,
@@ -89,6 +119,7 @@ def normalize_provider_exception(
             "billing hard limit",
             "credit balance",
             "credits exhausted",
+            "exceeded your current quota",
         )
     )
     if status == 402 or quota_signal:
@@ -98,7 +129,12 @@ def normalize_provider_exception(
             original=exc,
         )
 
-    if status == 429 or "ratelimit" in class_name or "rate limit" in lowered:
+    if (
+        status == 429
+        or "ratelimit" in class_name
+        or "rate limit" in lowered
+        or "resource_exhausted" in lowered
+    ):
         return ProviderRateLimited(
             f"Provider '{provider}' is rate limited.",
             provider=provider,
@@ -114,6 +150,7 @@ def normalize_provider_exception(
             "service unavailable",
             "connection error",
             "timeout",
+            "overloaded",
         )
     )
     if unavailable_signal:

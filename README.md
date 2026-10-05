@@ -6,7 +6,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
-La rama `develop` contiene el release candidate de `v0.1.0`. Todavía no existe un tag/release publicado hasta completar el flujo `develop → main`, CI final y creación manual del tag.
+Versión actual: `v0.2.0`, con tres proveedores (Anthropic, Gemini y OpenAI) y elección de proveedor, modelo y key en cada ejecución por consola. Ver [CHANGELOG](CHANGELOG.md).
 
 ## Principios
 
@@ -25,7 +25,7 @@ El flujo general separa el cliente de IA/chat, la interfaz MCP, el núcleo de Ag
 
 El diagrama editable está disponible en [`docs/arquitectura_agent_dev_kit.drawio`](docs/arquitectura_agent_dev_kit.drawio).
 
-En `v0.1.0`, la arquitectura de proveedores es extensible, pero el único provider registrado de fábrica es `OpenAIProvider`. Los clientes de chat —por ejemplo GitHub Copilot— son independientes del proveedor interno usado por Agent Dev Kit.
+Desde `v0.2.0` vienen registrados de fábrica `AnthropicProvider`, `GeminiProvider` y `OpenAIProvider`. Los clientes de chat —por ejemplo GitHub Copilot— son independientes del proveedor interno usado por Agent Dev Kit.
 
 ## Catálogo base
 
@@ -200,7 +200,9 @@ agents:
 
 ## Proveedor
 
-La primera implementación concreta es OpenAI Agents SDK, aislada detrás de `OpenAIProvider`.
+Proveedores incluidos: **Anthropic**, **Gemini** y **OpenAI**, cada uno detrás de su adaptador (`AnthropicProvider` y `GeminiProvider` con sus librerías oficiales; `OpenAIProvider` con OpenAI Agents SDK).
+
+Por consola se elige proveedor, modelo y key en cada ejecución; la key no se guarda. `provider.name` de `project.yaml` es el proveedor preferido. Detalle en [Proveedores](docs/proveedores.md).
 
 Otros proveedores pueden agregarse sin reescribir los agentes del catálogo.
 
@@ -214,10 +216,10 @@ Instalación para desarrollo:
 pip install -e ".[dev]"
 ```
 
-Proveedor OpenAI opcional:
+Proveedores opcionales:
 
 ```bash
-pip install -e ".[openai]"
+pip install -e ".[openai,anthropic,gemini]"
 ```
 
 Tests:
@@ -249,6 +251,8 @@ Tarea multi-especialista:
 agent-dev-kit task . "descripción de la tarea"
 ```
 
+Antes de empezar, un menú pregunta proveedor, key (oculta, no se guarda) y modelo (lista en vivo del proveedor). Con `--provider` y `--model` se saltea el menú.
+
 
 ## MCP
 
@@ -270,12 +274,11 @@ rutas de repositorio desde las herramientas.
 
 ## Instalación versionada
 
-Una vez creado el tag `v0.1.0`, un consumidor puede fijar exactamente esa
-versión:
+Un consumidor fija exactamente la versión publicada:
 
 ```bash
 python -m pip install \
-  "agent-dev-kit[openai,mcp] @ git+https://github.com/robertosl77/agent-dev-kit.git@v0.1.0"
+  "agent-dev-kit[openai,anthropic,gemini,mcp] @ git+https://github.com/robertosl77/agent-dev-kit.git@v0.2.0"
 ```
 
 No se recomienda consumir `main` como dependencia estable.
