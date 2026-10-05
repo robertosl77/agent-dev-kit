@@ -6,6 +6,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from agent_dev_kit.orchestration_budget import (
+    OrchestrationBudgetConfig,
+    orchestration_budget_from_mapping,
+)
 from agent_dev_kit.orchestration_policy import (
     ARTIFACT_REQUIRED_AGENTS,
     RISK_REQUIRED_AGENTS,
@@ -117,6 +121,9 @@ class OrchestrationConfig:
     improvement_candidate_threshold: int = 3
     document_templates: Mapping[str, str] = field(default_factory=dict)
     policies: tuple[ProjectRoutingPolicy, ...] = ()
+    budgets: OrchestrationBudgetConfig = field(
+        default_factory=OrchestrationBudgetConfig
+    )
 
 
 @dataclass(slots=True)
@@ -133,6 +140,13 @@ class OrchestrationTrace:
     policy_activations: tuple[str, ...] = ()
     full_request: str | None = None
     model_calls: int = 0
+    provider_calls: int = 0
+    calls_avoided_by_reuse: int = 0
+    deduplicated_context_items: int = 0
+    context_chars_total: int = 0
+    max_context_chars_observed: int = 0
+    context_truncations: int = 0
+    budget_events: list[dict[str, Any]] = field(default_factory=list)
     handoffs: int = 0
     revisits: int = 0
     node_attempts: dict[str, int] = field(default_factory=dict)
@@ -155,6 +169,13 @@ class OrchestrationTrace:
             "dag": list(self.dag),
             "full_request": self.full_request,
             "model_calls": self.model_calls,
+            "provider_calls": self.provider_calls,
+            "calls_avoided_by_reuse": self.calls_avoided_by_reuse,
+            "deduplicated_context_items": self.deduplicated_context_items,
+            "context_chars_total": self.context_chars_total,
+            "max_context_chars_observed": self.max_context_chars_observed,
+            "context_truncations": self.context_truncations,
+            "budget_events": list(self.budget_events),
             "handoffs": self.handoffs,
             "revisits": self.revisits,
             "node_attempts": dict(self.node_attempts),
@@ -245,6 +266,7 @@ def orchestration_config_from_mapping(
             if str(key).strip() and str(value).strip()
         },
         policies=project_policies_from_mapping(data.get("policies")),
+        budgets=orchestration_budget_from_mapping(data.get("budgets")),
     )
 
 
