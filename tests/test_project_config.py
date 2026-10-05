@@ -381,3 +381,51 @@ agents:
         assert "max_provider_calls" in str(exc)
     else:
         raise AssertionError("Expected budget validation failure")
+
+
+
+def test_gateway_lifecycle_config_is_loaded(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+gateway:
+  session_ttl_seconds: 900
+  max_sessions: 25
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.gateway.session_ttl_seconds == 900
+    assert config.gateway.max_sessions == 25
+
+
+def test_gateway_lifecycle_config_rejects_invalid_values(tmp_path):
+    write(
+        tmp_path / ".agent-dev-kit" / "project.yaml",
+        """
+project:
+  name: Example
+
+gateway:
+  session_ttl_seconds: 0
+
+agents:
+  enabled:
+    - backend
+""",
+    )
+
+    try:
+        load_project_config(tmp_path)
+    except ValueError as exc:
+        assert "session_ttl_seconds" in str(exc)
+    else:
+        raise AssertionError("Expected gateway lifecycle validation failure")

@@ -129,6 +129,10 @@ git_workflow:
     production: main
     integration: develop
 
+gateway:
+  session_ttl_seconds: 3600
+  max_sessions: 100
+
 orchestration:
   trace:
     enabled: true
