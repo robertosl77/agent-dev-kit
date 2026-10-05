@@ -66,6 +66,19 @@ Para instalar este proveedor:
 pip install -e ".[openai]"
 ```
 
+## Política de compatibilidad del SDK OpenAI
+
+La serie `v0.1.x` declara compatibilidad con `openai-agents>=0.23.1,<0.24`.
+Los patches dentro de esa línea pueden resolverse automáticamente. Un salto de
+minor o major requiere una actualización explícita del rango y debe pasar el
+job `Agent Dev Kit CI / openai-provider`.
+
+Ese job instala `.[dev,openai,mcp]` y ejecuta un smoke/contract test real del
+adaptador: creación de agentes, handoffs, structured output y normalización de
+ejecución sync/async. Los tests sustituyen el Runner por un fake al ejecutar, de
+modo que validan la API del SDK sin consumir credenciales ni hacer llamadas de
+red.
+
 ## Proveedores futuros
 
 Copilot y Claude quedan previstos como adaptadores futuros. Incorporarlos no debe obligar a reescribir los agentes del catálogo.

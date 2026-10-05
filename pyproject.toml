@@ -16,7 +16,7 @@ agent-dev-kit = "agent_dev_kit.cli:main"
 
 [project.optional-dependencies]
 openai = [
-  "openai-agents"
+  "openai-agents>=0.23.1,<0.24"
 ]
 mcp = [
   "mcp>=2,<3"
