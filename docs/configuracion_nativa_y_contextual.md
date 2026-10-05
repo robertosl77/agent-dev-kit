@@ -122,7 +122,7 @@ agents:
     - documentation
 ```
 
-La configuración concreta podrá evolucionar cuando se implemente M-010. Este ejemplo documenta la intención funcional.
+La configuración por proyecto está implementada y puede evolucionar de forma compatible en versiones posteriores. Este ejemplo documenta el contrato funcional vigente.
 
 ---
 
