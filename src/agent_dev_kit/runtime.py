@@ -428,8 +428,9 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         started = perf_counter()
-        self._prepare_node_attempt(plan, node)
+        attempt = self._check_node_attempt_budget(plan, node)
         prompt = self._node_prompt(plan, node)
+        self._record_node_attempt(plan, node, attempt)
         node.status = "running"
 
         try:
@@ -465,8 +466,9 @@ class DevAgentKit:
     ) -> None:
         handle = self.agents[node.agent]
         started = perf_counter()
-        self._prepare_node_attempt(plan, node)
+        attempt = self._check_node_attempt_budget(plan, node)
         prompt = self._node_prompt(plan, node)
+        self._record_node_attempt(plan, node, attempt)
         node.status = "running"
 
         try:
@@ -493,11 +495,11 @@ class DevAgentKit:
             started=started,
         )
 
-    def _prepare_node_attempt(
+    def _check_node_attempt_budget(
         self,
         plan: TaskPlan,
         node: TaskNode,
-    ) -> None:
+    ) -> tuple[int, int, int]:
         next_attempt = plan.node_attempts.get(node.id, 0) + 1
         next_revisits = plan.revisits + (1 if next_attempt > 1 else 0)
         revisit_limit = self.config.orchestration.budgets.max_revisits
@@ -523,6 +525,15 @@ class DevAgentKit:
                 node=node,
             )
 
+        return next_attempt, next_revisits, next_calls
+
+    @staticmethod
+    def _record_node_attempt(
+        plan: TaskPlan,
+        node: TaskNode,
+        attempt: tuple[int, int, int],
+    ) -> None:
+        next_attempt, next_revisits, next_calls = attempt
         plan.node_attempts[node.id] = next_attempt
         plan.provider_calls = next_calls
         if next_attempt > 1:
@@ -811,10 +822,10 @@ class DevAgentKit:
         )
 
     def _complete_trace(self, plan: TaskPlan) -> None:
+        plan.execution_status = "completed"
         if plan.trace is None:
             return
 
-        plan.execution_status = "completed"
         plan.trace.status = "completed"
         if self.trace_store is not None and not plan.trace.persisted:
             self.trace_store.append(plan.trace)
