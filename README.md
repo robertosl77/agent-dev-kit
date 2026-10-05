@@ -17,6 +17,16 @@ La rama `develop` contiene el release candidate de `v0.1.0`. Todavía no existe 
 - El framework no queda acoplado a OpenAI: el proveedor concreto vive detrás de un adaptador.
 - Las decisiones duraderas deben quedar en código, configuración, tests o documentación del proyecto.
 
+## Arquitectura general
+
+El flujo general separa el cliente de IA/chat, la interfaz MCP, el núcleo de Agent Dev Kit, la configuración del proyecto consumidor y la capa de proveedor.
+
+![Arquitectura general de Agent Dev Kit](docs/arquitectura_agent_dev_kit.svg)
+
+El diagrama editable está disponible en [`docs/arquitectura_agent_dev_kit.drawio`](docs/arquitectura_agent_dev_kit.drawio).
+
+En `v0.1.0`, la arquitectura de proveedores es extensible, pero el único provider registrado de fábrica es `OpenAIProvider`. Los clientes de chat —por ejemplo GitHub Copilot— son independientes del proveedor interno usado por Agent Dev Kit.
+
 ## Catálogo base
 
 ```text
