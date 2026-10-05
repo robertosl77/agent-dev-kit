@@ -62,7 +62,8 @@ from .task_plan import (
 )
 from .provider_registry import ProviderRegistry, build_default_registry
 from .execution import ProviderRuntime
-from .gateway import AgentDevKitGateway
+from .gateway import AgentDevKitGateway, TaskGatewayStatus
+from .gateway_config import GatewayLifecycleConfig
 from .mcp_server import build_mcp_server, run_mcp_server
 from .orchestration_budget import (
     OrchestrationBudgetConfig,
@@ -120,6 +121,8 @@ __all__ = [
     "PlannerTaskNode",
     "ProviderRuntime",
     "AgentDevKitGateway",
+    "TaskGatewayStatus",
+    "GatewayLifecycleConfig",
     "build_mcp_server",
     "run_mcp_server",
     "GitPolicyGuard",
