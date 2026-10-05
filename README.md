@@ -72,12 +72,18 @@ agent-dev-kit/
 │       ├── cli.py
 │       ├── execution.py
 │       ├── gateway.py
+│       ├── gateway_config.py
+│       ├── git_mutation.py
 │       ├── git_policy.py
 │       ├── mcp_server.py
 │       ├── orchestration.py
+│       ├── orchestration_budget.py
+│       ├── orchestration_policy.py
+│       ├── planner_contract.py
 │       ├── preferences.py
 │       ├── project_config.py
 │       ├── provider_config.py
+│       ├── provider_errors.py
 │       ├── provider_registry.py
 │       ├── routing.py
 │       ├── runtime.py
@@ -209,6 +215,12 @@ Tests:
 ```bash
 pytest
 ```
+
+El CI de release valida tres superficies independientes:
+
+- `Agent Dev Kit CI / test`;
+- `Agent Dev Kit CI / openai-provider`;
+- `Agent Dev Kit CI / package-smoke`.
 
 Las modernizaciones del framework se gestionan mediante GitHub Issues con códigos `M-xxx`.
 
