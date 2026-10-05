@@ -122,6 +122,38 @@ configuración. Si una policy activada contradice la propuesta de Triage, el pla
 se rechaza antes de ejecutar. La traza registra los IDs de las policies
 activadas y los riesgos detectados por la preclasificación independiente.
 
+## Budgets duros y reutilización
+
+Cada proyecto puede fijar límites duros para una ejecución:
+
+```yaml
+orchestration:
+  budgets:
+    max_dag_nodes: 12
+    max_provider_calls: 24
+    max_revisits: 2
+    max_context_chars: 16000
+    max_dependency_evidence_chars: 8000
+```
+
+Los límites se validan antes de consumir la siguiente llamada. Si continuar
+excedería el presupuesto, la tarea pasa a `requires_human_approval` y el
+Gateway devuelve el budget afectado, límite, valor observado y etapa.
+
+`max_provider_calls` incluye planning, reparación del planner y ejecución de
+nodos. Hasta M-036, `model_calls` conserva compatibilidad y refleja el mismo
+contador; M-036 separará provider runs de requests reales al modelo.
+
+La reutilización es exclusivamente intra-task. Si dos nodos tienen el mismo
+input efectivo —mismo agente, fase, objetivo y evidencia de dependencias— el
+segundo reutiliza el output/evidence ya obtenido y no vuelve a llamar al
+provider. No existe cache automática entre tareas.
+
+Antes de enviar contexto a un nodo, la evidencia duplicada se consolida y el
+exceso se recorta localmente con una marca explícita. Estas operaciones, junto
+con gates, policies y validaciones de budgets, son determinísticas y no consumen
+una llamada adicional al modelo.
+
 ## Contexto mínimo por nodo
 
 Triage recibe la solicitud original para planificar.
@@ -147,7 +179,10 @@ Cada ejecución puede persistir una traza JSONL local configurable con:
 - policies de proyecto activadas;
 - especialistas seleccionados y omitidos con razón;
 - DAG/fases;
-- llamadas a modelos;
+- provider calls / llamadas compatibles a modelo;
+- llamadas evitadas por reutilización;
+- contexto enviado, deduplicaciones y recortes;
+- eventos de budget;
 - handoffs inesperados;
 - revisitas;
 - duración por nodo;
