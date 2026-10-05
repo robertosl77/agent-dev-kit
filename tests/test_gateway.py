@@ -56,61 +56,64 @@ class GatewayProvider(AgentProvider):
             agent.name == "Agent Triage Planner"
             and "Planning-only operation" in message
         ):
-            return ProviderRunResult(
-                output=f"""{
-                  "request": "Fix report",
-                  "profile": {
+            payload = {
+                "request": "Fix report",
+                "profile": {
                     "summary": "Fix report service behavior.",
                     "classification": "backend_bug",
                     "risk_flags": ["backend_change", "behavior_regression"],
-                    "durable_artifacts": ["project_docs"]
-                  },
-                  "agent_decisions": [
+                    "durable_artifacts": ["project_docs"],
+                },
+                "agent_decisions": [
                     {
-                      "agent": "backend",
-                      "selected": true,
-                      "gate": "backend_change",
-                      "reason": "Server behavior changes."
+                        "agent": "backend",
+                        "selected": True,
+                        "gate": "backend_change",
+                        "reason": "Server behavior changes.",
                     },
                     {
-                      "agent": "testing",
-                      "selected": true,
-                      "gate": "behavior_regression",
-                      "reason": "Regression validation is required."
+                        "agent": "testing",
+                        "selected": True,
+                        "gate": "behavior_regression",
+                        "reason": "Regression validation is required.",
                     },
                     {
-                      "agent": "documentation",
-                      "selected": true,
-                      "gate": "durable_artifact",
-                      "reason": "Project documentation must be synchronized."
-                    }
-                  ],
-                  "required_disabled_agents": {json.dumps(list(self.required_disabled_agents))},
-                  "notes": null,
-                  "nodes": [
+                        "agent": "documentation",
+                        "selected": True,
+                        "gate": "durable_artifact",
+                        "reason": "Project documentation must be synchronized.",
+                    },
+                ],
+                "required_disabled_agents": list(
+                    self.required_disabled_agents
+                ),
+                "notes": None,
+                "nodes": [
                     {
-                      "id": "backend",
-                      "agent": "backend",
-                      "phase": "implementation",
-                      "objective": "Fix the service.",
-                      "depends_on": []
+                        "id": "backend",
+                        "agent": "backend",
+                        "phase": "implementation",
+                        "objective": "Fix the service.",
+                        "depends_on": [],
                     },
                     {
-                      "id": "testing",
-                      "agent": "testing",
-                      "phase": "validation",
-                      "objective": "Validate the service.",
-                      "depends_on": ["backend"]
+                        "id": "testing",
+                        "agent": "testing",
+                        "phase": "validation",
+                        "objective": "Validate the service.",
+                        "depends_on": ["backend"],
                     },
                     {
-                      "id": "documentation",
-                      "agent": "documentation",
-                      "phase": "documentation",
-                      "objective": "Document the evidence.",
-                      "depends_on": ["testing"]
-                    }
-                  ]
-                }""",
+                        "id": "documentation",
+                        "agent": "documentation",
+                        "phase": "documentation",
+                        "objective": "Document the evidence.",
+                        "depends_on": ["testing"],
+                    },
+                ],
+            }
+            return ProviderRunResult(
+                output=json.dumps(payload),
                 active_agent=agent,
             )
 
