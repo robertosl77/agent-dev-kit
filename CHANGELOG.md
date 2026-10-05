@@ -2,6 +2,57 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
+## [0.2.0] — multi-proveedor por consola
+
+Issue: M-073 (#114), subtarea de M-056 (#97).
+
+### Proveedores
+
+- `AnthropicProvider` con la librería oficial `anthropic` (extra `[anthropic]`);
+- `GeminiProvider` con la librería oficial `google-genai` (extra `[gemini]`);
+- ciclo de agente propio para ambos (`providers/tool_loop.py`): derivación entre
+  agentes con herramientas `transfer_to_<agente>`, salida estructurada del
+  planner con herramienta forzada y JSON Schema, herramientas del proyecto con
+  `FunctionTool`;
+- `OpenAIProvider` acepta la key y el modelo en tiempo de ejecución;
+- `build_default_registry(credentials)` recibe las keys en memoria, sin
+  variables de entorno;
+- catálogo `BUILTIN_PROVIDERS` (extra, variables de entorno y URL de la key).
+
+### Consola
+
+- menú antes de `run` y `task`: proveedor, key y modelo en cada ejecución;
+- la key se pide oculta y **no se guarda**; si existe la variable de entorno del
+  proveedor, se usa sin preguntar;
+- `provider.name` de `project.yaml` pasa a ser el **proveedor preferido**
+  (Enter); los `project.yaml` existentes siguen funcionando sin cambios;
+- modelo siempre elegido de la **lista en vivo** del proveedor
+  (`list_models`), sin modelo preferido; carga manual si la lista falla;
+- etiquetas de modelo solo con lo que informa el proveedor (`piensa`, `línea`);
+- `--provider` y `--model` para uso no interactivo;
+- los errores muestran la causa original resumida y sin secretos.
+
+### Errores
+
+- clasificación de errores de Anthropic (sin crédito, key inválida, límite,
+  sobrecarga) y Gemini (key inválida, `RESOURCE_EXHAUSTED`);
+- falta de key informada como `ProviderAuthenticationError`.
+
+### Cambios de comportamiento
+
+- `agent-dev-kit run` y `task` ahora preguntan proveedor y modelo antes de
+  empezar. Para el comportamiento anterior sin menú:
+  `--provider openai --model <modelo>` con `OPENAI_API_KEY` definida.
+- MCP y API Python no cambian: usan el proveedor de `project.yaml`. Anthropic y
+  Gemini requieren `provider.default_model` en ese modo.
+
+### Documentación
+
+- `docs/proveedores.md` reescrito;
+- README actualizado;
+- incluye el diagrama de arquitectura (`docs/arquitectura_agent_dev_kit.*`)
+  publicado en `develop` después de `v0.1.0`.
+
 ## [0.1.0] — primera versión utilizable
 
 ### Framework
