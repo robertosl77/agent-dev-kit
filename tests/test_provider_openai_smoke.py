@@ -1,5 +1,9 @@
 import asyncio
 
+import pytest
+
+pytest.importorskip("agents")
+
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.planner_contract import StructuredTaskPlan
 from agent_dev_kit.providers.provider_openai import OpenAIProvider
