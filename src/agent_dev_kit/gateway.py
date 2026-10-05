@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent_dev_kit.execution import ProviderRuntime
+from agent_dev_kit.orchestration_budget import OrchestrationBudgetExceeded
 from agent_dev_kit.preferences import PreferenceProfile
 from agent_dev_kit.project_config import (
     ProjectAgentDevKitConfig,
@@ -42,6 +43,7 @@ class TaskGatewayState:
     plan: TaskPlan | None = None
     pending_error: ProviderRecoverableError | None = None
     pending_stage: str | None = None
+    budget_error: OrchestrationBudgetExceeded | None = None
     completed: bool = False
 
 
@@ -236,9 +238,13 @@ class AgentDevKitGateway:
                 "completed"
                 if state.completed
                 else (
-                    "fallback_pending"
-                    if state.pending_error is not None
-                    else "in_progress"
+                    "requires_human_approval"
+                    if state.budget_error is not None
+                    else (
+                        "fallback_pending"
+                        if state.pending_error is not None
+                        else "in_progress"
+                    )
                 )
             ),
             "task_id": task_id,
@@ -292,13 +298,21 @@ class AgentDevKitGateway:
         task_id: str,
         state: TaskGatewayState,
     ) -> dict[str, Any]:
-        if state.completed:
+        if state.completed or state.budget_error is not None:
             return self.task_status(task_id)
 
         if state.plan is None:
             try:
                 state.plan = state.runtime.kit.plan_task_sync(
                     state.request
+                )
+            except OrchestrationBudgetExceeded as exc:
+                state.budget_error = exc
+                state.pending_stage = exc.stage
+                return self._budget_response(
+                    exc,
+                    task_id=task_id,
+                    plan=self._plan_payload(state.plan),
                 )
             except ProviderRecoverableError as exc:
                 state.pending_error = exc
@@ -330,6 +344,14 @@ class AgentDevKitGateway:
 
         try:
             state.runtime.kit.execute_plan_sync(state.plan)
+        except OrchestrationBudgetExceeded as exc:
+            state.budget_error = exc
+            state.pending_stage = exc.stage
+            return self._budget_response(
+                exc,
+                task_id=task_id,
+                plan=self._plan_payload(state.plan),
+            )
         except ProviderRecoverableError as exc:
             state.pending_error = exc
             state.pending_stage = "execution"
@@ -354,6 +376,16 @@ class AgentDevKitGateway:
             "task_id": task_id,
             "provider": state.runtime.current_target.provider,
             "plan": self._plan_payload(state.plan),
+        }
+
+    @staticmethod
+    def _budget_response(
+        error: OrchestrationBudgetExceeded,
+        **context: Any,
+    ) -> dict[str, Any]:
+        return {
+            **error.to_dict(),
+            **context,
         }
 
     def _fallback_response(
@@ -493,11 +525,21 @@ class AgentDevKitGateway:
             ),
             "notes": plan.notes,
             "is_complete": plan.is_complete,
+            "execution_status": plan.execution_status,
+            "provider_calls": plan.provider_calls,
+            "calls_avoided_by_reuse": plan.calls_avoided_by_reuse,
             "orchestration_trace": (
                 {
                     "request_fingerprint": trace.request_fingerprint,
                     "classification": trace.classification,
                     "model_calls": trace.model_calls,
+                    "provider_calls": trace.provider_calls,
+                    "calls_avoided_by_reuse": trace.calls_avoided_by_reuse,
+                    "deduplicated_context_items": trace.deduplicated_context_items,
+                    "context_chars_total": trace.context_chars_total,
+                    "max_context_chars_observed": trace.max_context_chars_observed,
+                    "context_truncations": trace.context_truncations,
+                    "budget_events": list(trace.budget_events),
                     "handoffs": trace.handoffs,
                     "revisits": trace.revisits,
                     "status": trace.status,
