@@ -270,3 +270,31 @@ def test_task_resumes_same_dag_after_approved_fallback(tmp_path):
         node["status"] == "completed"
         for node in resumed["plan"]["nodes"]
     )
+
+
+def test_gateway_surfaces_budget_exceeded_as_human_approval(tmp_path):
+    project_config(tmp_path)
+    project_path = tmp_path / ".agent-dev-kit" / "project.yaml"
+    content = project_path.read_text(encoding="utf-8")
+    content = content.replace(
+        "agents:\n",
+        "orchestration:\n"
+        "  budgets:\n"
+        "    max_provider_calls: 1\n"
+        "\n"
+        "agents:\n",
+    )
+    project_path.write_text(content, encoding="utf-8")
+
+    gateway = AgentDevKitGateway(
+        tmp_path,
+        registry=make_registry(),
+    )
+
+    result = gateway.start_task("Fix report")
+
+    assert result["status"] == "requires_human_approval"
+    assert result["reason"] == "budget_exceeded"
+    assert result["budget"] == "max_provider_calls"
+    assert result["stage"] == "execution"
+    assert result["plan"]["execution_status"] == "requires_human_approval"
