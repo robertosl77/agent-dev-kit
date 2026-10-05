@@ -1,7 +1,9 @@
 import argparse
+import re
 import sys
 from pathlib import Path
 
+from agent_dev_kit.console_setup import ConsoleSetup
 from agent_dev_kit.execution import ProviderRuntime
 from agent_dev_kit.project_config import load_project_config
 from agent_dev_kit.provider_errors import (
@@ -33,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--once",
         help="Send one message and exit.",
     )
+    _add_provider_arguments(run)
 
     task = subparsers.add_parser(
         "task",
@@ -46,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         "request",
         help="Task request to plan and execute.",
     )
+    _add_provider_arguments(task)
 
     mcp = subparsers.add_parser(
         "mcp",
@@ -78,6 +82,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_provider_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--provider",
+        help=(
+            "Provider to use (anthropic, gemini, openai). "
+            "Without it, a menu asks every time."
+        ),
+    )
+    command.add_argument(
+        "--model",
+        help="Model to use. Without it, the provider's live model list is shown.",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -95,9 +113,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         config = load_project_config(Path(args.project_root))
+        selection = ConsoleSetup().run(
+            config,
+            provider=args.provider,
+            model=args.model,
+        )
         runtime = ProviderRuntime(
-            registry=build_default_registry(),
-            project_config=config,
+            registry=build_default_registry(selection.credentials),
+            project_config=selection.config,
+        )
+        print(
+            f"Proveedor: {selection.provider} · modelo: {selection.model}",
+            file=sys.stderr,
         )
 
         if args.command == "run":
@@ -108,9 +135,30 @@ def main(argv: list[str] | None = None) -> int:
 
         parser.error(f"Unsupported command: {args.command}")
         return 2
+    except KeyboardInterrupt:
+        print(file=sys.stderr)
+        return 130
     except (ProviderError, ValueError, FileNotFoundError, RuntimeError) as exc:
         print(f"Agent Dev Kit error: {exc}", file=sys.stderr)
+        cause = _error_cause(exc)
+        if cause:
+            print(f"  causa: {cause}", file=sys.stderr)
         return 1
+
+
+_SECRET_PATTERN = re.compile(
+    r"(sk-[A-Za-z0-9_\-]{4})[A-Za-z0-9_\-]+|(AIza[A-Za-z0-9_\-]{2})[A-Za-z0-9_\-]+"
+)
+
+
+def _error_cause(exc: Exception) -> str | None:
+    """Short, sanitized description of the provider's original error."""
+
+    original = getattr(exc, "original", None)
+    if original is None:
+        return None
+    text = " ".join(str(original).split())[:300]
+    return _SECRET_PATTERN.sub(lambda m: (m.group(1) or m.group(2)) + "…", text)
 
 
 def run_conversation(
@@ -132,7 +180,7 @@ def run_conversation(
         return 0
 
     print(
-        f"Agent Dev Kit ready — provider: "
+        f"Agent Dev Kit listo — proveedor: "
         f"{runtime.current_target.provider}"
     )
     print("Type /exit to finish or /task <request> for a DAG task.")

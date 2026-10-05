@@ -60,7 +60,14 @@ from .task_plan import (
     TaskPlan,
     TaskPlanError,
 )
-from .provider_registry import ProviderRegistry, build_default_registry
+from .provider_registry import (
+    BUILTIN_PROVIDERS,
+    ProviderRegistry,
+    ProviderSpec,
+    build_default_registry,
+)
+from .model_catalog import ModelOption, list_models
+from .providers.tool_loop import FunctionTool
 from .execution import ProviderRuntime
 from .gateway import AgentDevKitGateway, TaskGatewayStatus
 from .gateway_config import GatewayLifecycleConfig
@@ -169,6 +176,11 @@ __all__ = [
     "resolve_preferences",
     "save_profile",
     "ProviderRegistry",
+    "ProviderSpec",
+    "BUILTIN_PROVIDERS",
+    "ModelOption",
+    "list_models",
+    "FunctionTool",
     "ProviderRunResult",
     "DevAgentKit",
     "DevConversation",
