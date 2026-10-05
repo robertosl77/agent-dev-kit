@@ -251,6 +251,11 @@ class AgentDevKitGateway:
             "provider": state.runtime.current_target.provider,
             "request": state.request,
             "pending_stage": state.pending_stage,
+            "budget": (
+                state.budget_error.to_dict()
+                if state.budget_error is not None
+                else None
+            ),
             "plan": self._plan_payload(state.plan),
         }
 
