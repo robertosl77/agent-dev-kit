@@ -185,7 +185,7 @@ Documentation no es dueño de las decisiones funcionales o técnicas.
 - Architecture/especialistas son dueños del contenido técnico;
 - Documentation consolida, sincroniza y preserva artefactos durables.
 
-Los gates concretos de cuándo participa cada agente se definen en M-028.
+Los gates concretos de cuándo participa cada agente están implementados por la orquestación por riesgo iniciada en M-028 y endurecida por las policies determinísticas posteriores.
 
 ## Regla para futuros agentes
 
