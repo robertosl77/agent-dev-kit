@@ -321,3 +321,68 @@ def test_dependency_context_is_deduplicated_and_truncated_locally():
     assert plan.trace.deduplicated_context_items == 1
     assert plan.trace.context_truncations == 1
     assert plan.trace.max_context_chars_observed <= 1200
+
+
+class OversizedPlannerProvider(BudgetProvider):
+    def run_sync(self, agent, message, *, session=None):
+        if agent.name != "Agent Triage Planner":
+            return super().run_sync(agent, message, session=session)
+
+        self.calls.append((agent.name, message))
+        payload = {
+            "request": "Fix backend behavior",
+            "profile": {
+                "summary": "Fix backend behavior.",
+                "classification": "backend_bug",
+                "risk_flags": ["backend_change"],
+                "durable_artifacts": [],
+            },
+            "agent_decisions": [
+                {
+                    "agent": "backend",
+                    "selected": True,
+                    "gate": "backend_change",
+                    "reason": "Backend behavior changes.",
+                }
+            ],
+            "required_disabled_agents": [],
+            "notes": None,
+            "nodes": [
+                {
+                    "id": "one",
+                    "agent": "backend",
+                    "phase": "implementation",
+                    "objective": "First change",
+                    "depends_on": [],
+                },
+                {
+                    "id": "two",
+                    "agent": "backend",
+                    "phase": "implementation",
+                    "objective": "Second change",
+                    "depends_on": ["one"],
+                },
+            ],
+        }
+        return ProviderRunResult(
+            output=json.dumps(payload),
+            active_agent=agent,
+        )
+
+
+def test_oversized_planner_dag_is_rejected_before_execution():
+    provider = OversizedPlannerProvider()
+    kit = DevAgentKit.build(
+        make_config(
+            enabled=("triage", "backend"),
+            budgets={"max_dag_nodes": 1},
+        ),
+        provider,
+    )
+
+    with pytest.raises(OrchestrationBudgetExceeded) as exc:
+        kit.plan_task_sync("Fix backend behavior")
+
+    assert exc.value.budget == "max_dag_nodes"
+    assert exc.value.stage == "planning"
+    assert len(provider.calls) == 1
