@@ -363,9 +363,11 @@ def run_graph_report(config, args) -> int:
 
 def _ask_github_token(reason: str) -> str | None:
     print(reason, file=sys.stderr)
-    token = getpass.getpass(
+    from agent_dev_kit.console_setup import clean_key
+
+    token, _ = clean_key(getpass.getpass(
         "Token de GitHub de solo lectura (no se muestra ni se guarda; Enter para omitir): "
-    ).strip()
+    ))
     return token or None
 
 

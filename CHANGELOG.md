@@ -68,6 +68,16 @@ Issue paraguas: M-078 (#121).
 - un error del proveedor ya no cierra la sesión; un plan sin decisiones de
   Triage pasa por el intento de reparación.
 
+### Key por consola (M-081, #124)
+
+- la key pegada se limpia de espacios, comillas y caracteres invisibles (p. ej.
+  el `Ctrl+V` de la PowerShell clásica) y se avisa cuántos se quitaron;
+- se controla el prefijo documentado (`sk-ant-`, `sk-`); si no coincide se
+  vuelve a pedir con la pista "pegá con clic derecho";
+- si el listado de modelos falla por 400/401, se ofrece volver a pegar la key;
+- los errores genéricos del proveedor muestran el cuerpo de la respuesta
+  (antes solo `Error code: 400`).
+
 ### Otros
 
 - M-075 (#118): se quita la etiqueta `[piensa]` del menú de modelos;

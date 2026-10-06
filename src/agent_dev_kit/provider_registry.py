@@ -20,6 +20,8 @@ class ProviderSpec:
     extra: str
     key_url: str
     import_name: str
+    # Documented key prefixes, used to warn about a badly pasted key.
+    key_prefixes: tuple[str, ...] = ()
 
     @property
     def env_var(self) -> str:
@@ -55,6 +57,7 @@ BUILTIN_PROVIDERS: dict[str, ProviderSpec] = {
         extra="anthropic",
         key_url="https://platform.claude.com/settings/keys",
         import_name="anthropic",
+        key_prefixes=("sk-ant-",),
     ),
     "gemini": ProviderSpec(
         key="gemini",
@@ -71,6 +74,7 @@ BUILTIN_PROVIDERS: dict[str, ProviderSpec] = {
         extra="openai",
         key_url="https://platform.openai.com/api-keys",
         import_name="agents",
+        key_prefixes=("sk-",),
     ),
 }
 

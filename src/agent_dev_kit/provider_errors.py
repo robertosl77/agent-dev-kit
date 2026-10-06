@@ -161,7 +161,33 @@ def normalize_provider_exception(
         )
 
     return ProviderExecutionError(
-        f"Provider '{provider}' failed: {message}",
+        f"Provider '{provider}' failed: {message}{_detail(exc, message)}",
         provider=provider,
         original=exc,
     )
+
+
+def _detail(exc: Exception, message: str) -> str:
+    """What the API (or a proxy in between) answered, when the SDK hides it.
+
+    Some SDK messages are just "Error code: 400". The body usually says why
+    (bad header, unknown parameter, a corporate proxy page...).
+    """
+
+    body = getattr(exc, "body", None)
+    text = ""
+    if isinstance(body, dict):
+        error = body.get("error")
+        text = str(error.get("message") if isinstance(error, dict) else error or "")
+    elif isinstance(body, str):
+        text = body
+    if not text:
+        response = getattr(exc, "response", None)
+        try:
+            text = str(getattr(response, "text", "") or "")
+        except Exception:  # streamed/closed responses cannot be read again
+            text = ""
+    text = " ".join(text.split())[:300]
+    if not text or text in message:
+        return ""
+    return f" — respuesta: {text}"

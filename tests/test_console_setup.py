@@ -115,7 +115,7 @@ def test_environment_key_is_used_without_asking(monkeypatch):
 def test_model_can_be_typed_when_listing_fails():
     console, out, _ = setup(
         Script("claude-manual"),
-        Script("key"),
+        Script("sk-ant-key"),
         lister_error=RuntimeError("connection error"),
     )
 
@@ -123,6 +123,63 @@ def test_model_can_be_typed_when_listing_fails():
 
     assert selection.model == "claude-manual"
     assert "No se pudo obtener la lista de modelos" in out.getvalue()
+
+
+def test_pasted_key_is_cleaned_of_invisible_characters():
+    console, out, seen = setup(Script("1"), Script("\x16 sk-ant-ab\u00a0c\r\n"), MODELS)
+
+    selection = console.run(project("anthropic"), provider="anthropic")
+
+    assert seen == [("anthropic", "sk-ant-abc")]
+    assert selection.credentials("anthropic") == "sk-ant-abc"
+    assert "Se quitaron 3 caracteres invisibles" in out.getvalue()
+
+
+def test_key_with_wrong_format_is_asked_again_with_paste_hint():
+    secrets = Script("\x16", "sk-ant-good")
+    console, out, seen = setup(Script("1"), secrets, MODELS)
+
+    console.run(project("anthropic"), provider="anthropic")
+
+    assert len(secrets.prompts) == 2
+    assert seen == [("anthropic", "sk-ant-good")]
+    text = out.getvalue()
+    assert "clic derecho" in text
+    assert "good" not in text
+
+
+def test_rejected_key_while_listing_can_be_pasted_again():
+    import httpx
+    anthropic = pytest.importorskip("anthropic")
+    response = httpx.Response(
+        400,
+        request=httpx.Request("GET", "https://api.anthropic.com/v1/models"),
+        text="Bad Request: header inválido",
+    )
+    calls = []
+
+    def lister(provider, key):
+        calls.append(key)
+        if len(calls) == 1:
+            raise anthropic.BadRequestError("Error code: 400", response=response, body=None)
+        return MODELS
+
+    out = io.StringIO()
+    console = ConsoleSetup(
+        input_fn=Script("s", "1"),
+        secret_fn=Script("sk-ant-bad", "sk-ant-good"),
+        out=out,
+        model_lister=lister,
+    )
+
+    selection = console.run(project("anthropic"), provider="anthropic")
+
+    assert calls == ["sk-ant-bad", "sk-ant-good"]
+    assert selection.model == "claude-big"
+    assert selection.credentials("anthropic") == "sk-ant-good"
+    text = out.getvalue()
+    assert "respuesta: Bad Request: header inválido" in text
+    assert "mal pegada" in text
 
 
 def test_flags_skip_menus():
@@ -137,7 +194,7 @@ def test_flags_skip_menus():
 
 
 def test_no_preferred_model_is_ever_preselected():
-    console, _, _ = setup(Script("", "", ""), Script("key"), MODELS)
+    console, _, _ = setup(Script("", "", ""), Script("sk-ant-key"), MODELS)
 
     with pytest.raises(SetupCancelled):
         console.run(project("anthropic"), provider="anthropic")
@@ -158,7 +215,7 @@ def test_options_of_preferred_provider_are_not_sent_to_another_provider():
             "provider": ProviderConfig(provider="openai", options={"base_url": "x"}),
         }
     )
-    console, _, _ = setup(Script(), Script("key"))
+    console, _, _ = setup(Script(), Script("sk-ant-key"))
 
     selection = console.run(config, provider="anthropic", model="m")
 
