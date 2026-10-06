@@ -162,9 +162,17 @@ class GitPolicyGuard:
         *,
         base_branch: str,
         issue_reference: str | None = None,
-        base_is_updated: bool = True,
+        base_is_updated: bool | None = None,
         authorization: HumanAuthorization | None = None,
     ) -> None:
+        """Validate a task branch creation.
+
+        ``base_is_updated`` must come from a real check of the repository
+        (see ``RepositoryStateVerifier`` in git_mutation). ``None`` means it
+        was not verified, which is rejected when the policy requires an
+        updated base (M-063).
+        """
+
         action_scope = self.task_branch_scope(branch)
         if self._override_allowed(authorization, action_scope):
             return
@@ -190,11 +198,17 @@ class GitPolicyGuard:
                 "Task branch creation requires an Issue reference."
             )
 
-        if self.config.require_updated_base_before_task and not base_is_updated:
-            raise GitPolicyViolation(
-                f"Base branch '{base_branch}' must be updated before creating "
-                "a task branch."
-            )
+        if self.config.require_updated_base_before_task:
+            if base_is_updated is None:
+                raise GitPolicyViolation(
+                    f"Could not verify that base branch '{base_branch}' is "
+                    "updated. Provide a repository state verifier."
+                )
+            if not base_is_updated:
+                raise GitPolicyViolation(
+                    f"Base branch '{base_branch}' must be updated before "
+                    "creating a task branch."
+                )
 
     def validate_pull_request(
         self,

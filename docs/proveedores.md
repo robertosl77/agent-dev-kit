@@ -37,7 +37,7 @@ Solo el adaptador concreto conoce su SDK.
 La key se obtiene en: https://platform.claude.com/settings/keys
 Pegá tu key de Anthropic (Claude) (no se muestra): ****
 ¿Qué modelo?                        ← lista en vivo del proveedor
-  1) claude-opus-...      [piensa] [línea opus]
+  1) claude-opus-...      [línea opus]
   2) claude-haiku-...     [línea haiku]
 > 2
 you> ...
@@ -55,9 +55,9 @@ Reglas del menú:
 3. **Modelo**: siempre se pregunta, con la **lista en vivo** del proveedor. No
    hay modelo preferido ni preseleccionado. Si la lista no se puede obtener, se
    escribe el nombre a mano.
-4. **Etiquetas**: solo lo que informa el proveedor (Anthropic: `piensa`,
-   `línea`; Gemini: `piensa`). OpenAI no informa nada en su lista, así que sus
-   modelos aparecen sin etiqueta. No se deduce nada por el nombre.
+4. **Etiquetas**: solo lo que informa el proveedor y además distingue modelos
+   (Anthropic: `línea`). La capacidad de razonamiento no se muestra porque hoy
+   la informan todos los modelos (M-075). No se deduce nada por el nombre.
 
 Para scripts o CI, `--provider` y `--model` saltean el menú:
 

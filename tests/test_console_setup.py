@@ -61,7 +61,7 @@ def setup(inputs, secrets, models=None, lister_error=None):
 
 
 MODELS = [
-    ModelOption(id="claude-big", label="Big", tags=("piensa", "línea opus")),
+    ModelOption(id="claude-big", label="Big", tags=("línea opus",)),
     ModelOption(id="claude-small", label="Small", tags=("línea haiku",)),
 ]
 
@@ -81,7 +81,8 @@ def test_enter_selects_preferred_provider_then_asks_key_and_model():
     assert selection.credentials("anthropic") == "sk-ant-secret"
     text = out.getvalue()
     assert "(preferido)" in text
-    assert "[piensa] [línea opus]" in text
+    assert "[línea opus]" in text
+    assert "piensa" not in text
     assert "sk-ant-secret" not in text
 
 
@@ -187,7 +188,7 @@ def test_default_registry_passes_runtime_key_to_provider():
     assert set(registry.keys()) == {"anthropic", "gemini", "openai"}
 
 
-def test_anthropic_listing_reports_only_provider_tags_newest_first():
+def test_anthropic_listing_shows_line_but_not_thinking_newest_first():
     rows = [
         SimpleNamespace(
             id="old",
@@ -209,7 +210,7 @@ def test_anthropic_listing_reports_only_provider_tags_newest_first():
     options = list_models("anthropic", "k", client=client)
 
     assert [item.id for item in options] == ["new", "old"]
-    assert options[0].tags == ("piensa", "línea opus")
+    assert options[0].tags == ("línea opus",)
     assert options[1].tags == ()
 
 
@@ -232,7 +233,7 @@ def test_gemini_listing_keeps_only_text_generation_models():
 
     options = list_models("gemini", "k", client=client)
 
-    assert [(item.id, item.tags) for item in options] == [("gemini-flash", ("piensa",))]
+    assert [(item.id, item.tags) for item in options] == [("gemini-flash", ())]
 
 
 def test_openai_listing_filters_chat_models_without_guessing_tags():

@@ -96,3 +96,20 @@ def test_openai_provider_normalizes_async_result_without_network():
     assert result.output == "echo:hello"
     assert result.active_agent.name == "Agent Backend"
     assert result.active_agent.native is backend.native
+
+
+def test_openai_provider_wraps_builtin_workspace_tools(tmp_path):
+    from agents import FunctionTool
+
+    from agent_dev_kit.workspace_tools import Workspace
+
+    (tmp_path / "a.txt").write_text("hola\n", encoding="utf-8")
+    provider = OpenAIProvider()
+    tool = next(t for t in Workspace(tmp_path).tools("read") if t.name == "read_file")
+
+    native = provider.native_tool(tool)
+
+    assert isinstance(native, FunctionTool)
+    assert native.name == "read_file"
+    output = asyncio.run(native.on_invoke_tool(None, '{"path": "a.txt"}'))
+    assert "1: hola" in output

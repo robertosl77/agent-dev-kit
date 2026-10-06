@@ -124,6 +124,7 @@ def create_enabled_agents(
     *,
     tool_registry: ToolRegistry | None = None,
     preference_profile: PreferenceProfile | None = None,
+    builtin_tools: "Callable[[str], tuple] | None" = None,
 ) -> dict[str, AgentHandle]:
     """Instantiate only enabled agents.
 
@@ -139,15 +140,16 @@ def create_enabled_agents(
     handles: dict[str, AgentHandle] = {}
 
     def tools_for(key: str):
+        builtin = tuple(builtin_tools(key)) if builtin_tools is not None else ()
         contextual = config.agent(key)
         requested = contextual.tools if contextual is not None else ()
         if not requested:
-            return ()
+            return builtin
         if tool_registry is None:
             raise ValueError(
                 f"Agent '{key}' requests tools but no ToolRegistry was supplied."
             )
-        return tool_registry.resolve(requested, provider=provider.key)
+        return builtin + tool_registry.resolve(requested, provider=provider.key)
 
     for key, definition in definitions.items():
         if key == "triage":

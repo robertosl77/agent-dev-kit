@@ -37,10 +37,11 @@ from agent_dev_kit.providers.provider_base import (
     ProviderRunResult,
 )
 from agent_dev_kit.tooling import ToolHandle
+from agent_dev_kit.usage import UsageRecord
 
 
 STRUCTURED_OUTPUT_TOOL = "submit_output"
-DEFAULT_MAX_TURNS = 10
+DEFAULT_MAX_TURNS = 25
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +83,7 @@ class ModelTurn:
     tool_calls: list[ToolCall]
     raw: Any = None
     truncated: bool = False
+    usage: UsageRecord | None = None
 
 
 @dataclass(slots=True)
@@ -145,6 +147,16 @@ class ToolLoopProvider(AgentProvider):
 
     def supports_structured_output(self) -> bool:
         return True
+
+    def native_tool(self, tool: Any) -> FunctionTool:
+        from agent_dev_kit.workspace_tools import safe_handler
+
+        return FunctionTool(
+            name=tool.name,
+            description=tool.description,
+            parameters=tool.parameters,
+            handler=safe_handler(tool),
+        )
 
     def create_structured_agent(
         self,
@@ -214,6 +226,15 @@ class ToolLoopProvider(AgentProvider):
     def _run_loop(self, agent: AgentHandle, message: str) -> ProviderRunResult:
         current = agent
         transcript = self._new_transcript(message)
+        usage: list[UsageRecord] = []
+
+        def result(output: Any, active: AgentHandle, raw: Any) -> ProviderRunResult:
+            return ProviderRunResult(
+                output=output,
+                active_agent=active,
+                native_result=raw,
+                usage=_merge(usage),
+            )
 
         for _ in range(self.max_turns):
             spec: LoopAgent = current.native
@@ -227,15 +248,13 @@ class ToolLoopProvider(AgentProvider):
             )
 
             turn = self._complete(spec, transcript, tool_specs, forced)
+            if turn.usage is not None:
+                usage.append(turn.usage)
 
             if forced is not None:
                 for call in turn.tool_calls:
                     if call.name == STRUCTURED_OUTPUT_TOOL:
-                        return ProviderRunResult(
-                            output=call.arguments,
-                            active_agent=current,
-                            native_result=turn.raw,
-                        )
+                        return result(call.arguments, current, turn.raw)
                 raise ProviderExecutionError(
                     f"Provider '{self.key}' did not return the structured "
                     "output"
@@ -244,11 +263,7 @@ class ToolLoopProvider(AgentProvider):
                 )
 
             if not turn.tool_calls:
-                return ProviderRunResult(
-                    output=turn.text,
-                    active_agent=current,
-                    native_result=turn.raw,
-                )
+                return result(turn.text, current, turn.raw)
 
             self._append_assistant(transcript, turn)
             results: list[tuple[ToolCall, str]] = []
@@ -340,6 +355,12 @@ class ToolLoopProvider(AgentProvider):
         results: list[tuple[ToolCall, str]],
     ) -> None:
         """Append tool results so the model can continue."""
+
+
+def _merge(records: list[UsageRecord]) -> list[UsageRecord]:
+    from agent_dev_kit.usage import merge_usage
+
+    return merge_usage(records)
 
 
 def handoff_tool_name(agent_name: str) -> str:

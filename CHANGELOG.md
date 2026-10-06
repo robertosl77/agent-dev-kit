@@ -2,6 +2,69 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
+## [0.3.0] — agentes con herramientas: consultor y acción
+
+Issue paraguas: M-078 (#121).
+
+### Herramientas y modos (M-076, #119)
+
+- herramientas incluidas para los agentes: `list_files`, `read_file`, `search`,
+  `git_status`, `git_log`, `git_diff`, `read_issue` (todos los modos) y
+  `write_file`, `replace_in_file`, `run_command` (solo `/do`);
+- sandbox del framework: paths dentro del proyecto, sin `.git/`, sin escribir
+  `.agent-dev-kit/`, sin leer ni escribir `.env*` (salvo `.env.example`);
+- comandos: `workspace.test_commands` corren sin preguntar,
+  `workspace.allowed_commands` preguntan, el resto se rechaza;
+- `read_issue`: anónimo en repos públicos; token de solo lectura pedido (oculto,
+  no se guarda) para repos privados o cupo agotado;
+- consola: `/plan`, `/task` (lee el repo antes de proponer) y `/do`;
+  `agent-dev-kit task --mode plan|propose|act`;
+- `/do`: controles sin costo previos (repo limpio, issue, `develop` igual a
+  `origin/develop`), OK al plan mostrando agentes/nodos/modelo, rama local
+  `<kind>/<issue>-<slug>` desde `develop`, resumen con diff, comandos y consumo,
+  OK al commit local. Nunca hace push;
+- permisos por agente (`access: read_only|read_write` en `agents/<x>.yaml`).
+
+### Política Git (M-063, #104)
+
+- `base_is_updated` pasa a `None` por defecto: sin verificación real del repo,
+  la creación de rama se rechaza cuando la política exige base actualizada;
+- `RepositoryStateVerifier` y `LocalRepositoryVerifier` verifican la rama base
+  contra `origin`;
+- `ToolRegistry.register()` rechaza `effect="git_mutation"` y advierte sobre
+  tools con nombre de mutación git; `describe()` y `status()` las exponen.
+
+### Consumo (M-036, #64)
+
+- los tres proveedores devuelven tokens de entrada/salida (y razonamiento o
+  caché cuando el proveedor los informa) en `ProviderRunResult.usage`;
+- la traza registra proveedor, modelo y consumo por etapa (planner y cada nodo);
+- la consola muestra el consumo al final de cada uso;
+- `pricing` opcional en `project.yaml` para estimar USD (sin lista de precios
+  propia que se desactualice).
+
+### Log y análisis de grafos (M-068, #109)
+
+- cada uso registra `run_id`, `recorded_at`, modo, `intake_key` (clave
+  determinística previa a Triage) y herramientas usadas;
+- `agent-dev-kit graphs .` lista los usos; `agent-dev-kit candidates .` resume
+  agentes convocados, peso de la planificación y candidatos de mejora
+  (incluye `inconsistent_classification`). Solo propone; no cambia el routing.
+
+### Otros
+
+- M-075 (#118): se quita la etiqueta `[piensa]` del menú de modelos;
+- M-077 (#120): `project.language` (y override por agente) fija el idioma de
+  respuesta sin traducir código, claves ni enums;
+- ciclo de agente: hasta 25 turnos por nodo para permitir el uso de herramientas.
+
+### Cambios de comportamiento
+
+- `GitPolicyGuard.validate_task_branch_creation` y
+  `GitMutationGateway.create_task_branch` ya no asumen base actualizada.
+- En `run` y `task`, los agentes ahora leen el repo con herramientas. Esto
+  mejora las respuestas, pero consume más tokens.
+
 ## [0.2.0] — multi-proveedor por consola
 
 Issue: M-073 (#114), subtarea de M-056 (#97).

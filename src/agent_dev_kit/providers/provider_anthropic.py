@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from agent_dev_kit.usage import UsageRecord
 from agent_dev_kit.providers.tool_loop import (
     LoopAgent,
     ModelTurn,
@@ -91,6 +92,7 @@ class AnthropicProvider(ToolLoopProvider):
             tool_calls=calls,
             raw=response,
             truncated=getattr(response, "stop_reason", None) == "max_tokens",
+            usage=_anthropic_usage(response, spec.model),
         )
 
     def _append_assistant(self, transcript: list[Any], turn: ModelTurn) -> None:
@@ -126,6 +128,21 @@ class AnthropicProvider(ToolLoopProvider):
                 ],
             }
         )
+
+
+def _anthropic_usage(response: Any, model: str) -> UsageRecord | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    cached = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+    created = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    return UsageRecord(
+        provider="anthropic",
+        model=str(getattr(response, "model", None) or model),
+        input_tokens=int(getattr(usage, "input_tokens", 0) or 0) + cached + created,
+        output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+        cached_input_tokens=cached,
+    )
 
 
 def build_anthropic_client(api_key: str | None, *, base_url: str | None = None):

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+from uuid import uuid4
 from dataclasses import dataclass
 from hashlib import sha256
 from time import perf_counter
@@ -19,6 +21,7 @@ from agent_dev_kit.orchestration import (
     OrchestrationTrace,
     OrchestrationTraceStore,
     fingerprint_request,
+    fingerprint_intake,
     fingerprint_routing,
     resolve_project_trace_path,
 )
@@ -40,6 +43,8 @@ class DevAgentKit:
     agents: dict[str, AgentHandle]
     planner_agent: AgentHandle | None = None
     trace_store: OrchestrationTraceStore | None = None
+    execution_note: str = ""
+    mode: str = "propose"
 
     @classmethod
     def build(
@@ -49,6 +54,9 @@ class DevAgentKit:
         *,
         tool_registry: ToolRegistry | None = None,
         preference_profile: PreferenceProfile | None = None,
+        builtin_tools: Any | None = None,
+        execution_note: str = "",
+        mode: str = "propose",
     ) -> "DevAgentKit":
         trace_store = None
         if config.orchestration.trace_enabled and config.project_root is not None:
@@ -66,6 +74,7 @@ class DevAgentKit:
             config,
             tool_registry=tool_registry,
             preference_profile=preference_profile,
+            builtin_tools=builtin_tools,
         )
         planner_agent = None
         if "triage" in agents:
@@ -92,6 +101,8 @@ class DevAgentKit:
             agents=agents,
             planner_agent=planner_agent,
             trace_store=trace_store,
+            execution_note=execution_note,
+            mode=mode,
         )
 
     def conversation(
@@ -131,6 +142,7 @@ class DevAgentKit:
             session=session,
         )
         planning_calls = 1
+        planning_usage = list(result.usage)
         self._validate_planner_result(planner, result)
 
         try:
@@ -152,6 +164,7 @@ class DevAgentKit:
                 session=session,
             )
             planning_calls += 1
+            planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
                 plan = self._parse_planner_output(repaired.output)
@@ -175,6 +188,7 @@ class DevAgentKit:
             planning_ms=planning_ms,
             planning_calls=planning_calls,
         )
+        plan.trace.add_usage("planner", "triage", planning_usage)
         self._ensure_dag_budget(plan, stage="planning")
         return plan
 
@@ -203,6 +217,7 @@ class DevAgentKit:
             session=session,
         )
         planning_calls = 1
+        planning_usage = list(result.usage)
         self._validate_planner_result(planner, result)
 
         try:
@@ -224,6 +239,7 @@ class DevAgentKit:
                 session=session,
             )
             planning_calls += 1
+            planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
                 plan = self._parse_planner_output(repaired.output)
@@ -247,6 +263,7 @@ class DevAgentKit:
             planning_ms=planning_ms,
             planning_calls=planning_calls,
         )
+        plan.trace.add_usage("planner", "triage", planning_usage)
         self._ensure_dag_budget(plan, stage="planning")
         return plan
 
@@ -603,6 +620,8 @@ class DevAgentKit:
             )
 
         node.output = result.output
+        if plan.trace is not None:
+            plan.trace.add_usage(node.id, node.agent, result.usage)
         node.evidence = {
             "provider": self.provider.key,
             "active_agent": result.active_agent.name,
@@ -678,7 +697,8 @@ class DevAgentKit:
             "Completed dependency outputs:\n"
         )
         suffix = (
-            "\n\nReturn the node result and concise evidence useful to the "
+            (f"\n\n{self.execution_note}" if self.execution_note else "")
+            + "\n\nReturn the node result and concise evidence useful to the "
             "following nodes and final documentation."
         )
 
@@ -849,7 +869,22 @@ class DevAgentKit:
             provider_calls=planning_calls,
             node_durations_ms={"__planning__": planning_ms},
             status="planned",
+            provider=self.provider.key,
+            model=self.config.provider.default_model or "",
+            mode=self.mode,
+            intake_key=fingerprint_intake(
+                plan.independent_risk_flags,
+                self.agents.keys(),
+            ),
+            recorded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            run_id=uuid4().hex[:12],
         )
+
+    def record_plan_only(self, plan: TaskPlan) -> None:
+        """Persist the trace of a /plan run (planning without execution)."""
+
+        plan.execution_status = "planned_only"
+        self._persist_trace(plan, "planned_only")
 
     def _complete_trace(self, plan: TaskPlan) -> None:
         plan.execution_status = "completed"

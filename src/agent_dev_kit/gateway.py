@@ -126,6 +126,11 @@ class AgentDevKitGateway:
             "task_sessions": len(self._tasks),
             "session_ttl_seconds": self.config.gateway.session_ttl_seconds,
             "max_sessions": self.config.gateway.max_sessions,
+            "tools": (
+                self.tool_registry.describe()
+                if self.tool_registry is not None
+                else []
+            ),
         }
 
     def chat(

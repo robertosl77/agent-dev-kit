@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
@@ -13,6 +14,9 @@ class ToolHandle:
     native: Any
     effect: str = "opaque"
     enforced_policy: str | None = None
+
+
+_GIT_MUTATION_WORDS = ("git", "push", "commit", "merge", "branch", "rebase")
 
 
 class ToolRegistry:
@@ -32,15 +36,36 @@ class ToolRegistry:
         *,
         provider: str,
         native: Any,
+        effect: str = "opaque",
     ) -> ToolHandle:
         normalized = self.normalize_key(key)
         if not normalized:
             raise ValueError("Tool key cannot be empty.")
 
+        effect_key = effect.strip().lower()
+        if effect_key == "git_mutation":
+            raise ValueError(
+                "Git mutation tools must be registered with "
+                "register_git_mutation() so GitPolicyGuard is enforced."
+            )
+        if effect_key not in {"opaque", "read_only"}:
+            raise ValueError("effect must be 'opaque' or 'read_only'.")
+        if effect_key == "opaque" and any(
+            word in normalized.split("_")
+            for word in _GIT_MUTATION_WORDS
+        ):
+            warnings.warn(
+                f"Tool '{normalized}' looks like a Git mutation but was "
+                "registered without GitPolicyGuard. Use "
+                "register_git_mutation() for Git writes.",
+                stacklevel=2,
+            )
+
         handle = ToolHandle(
             provider=provider.strip().lower(),
             key=normalized,
             native=native,
+            effect=effect_key,
         )
         self._tools[normalized] = handle
         return handle
@@ -107,6 +132,19 @@ class ToolRegistry:
             resolved.append(handle)
 
         return tuple(resolved)
+
+    def describe(self) -> list[dict[str, str | None]]:
+        """Safe summary for status/audit: key, provider, effect and policy."""
+
+        return [
+            {
+                "key": handle.key,
+                "provider": handle.provider,
+                "effect": handle.effect,
+                "enforced_policy": handle.enforced_policy,
+            }
+            for handle in self._tools.values()
+        ]
 
     @staticmethod
     def normalize_key(value: str) -> str:

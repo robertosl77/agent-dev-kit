@@ -6,7 +6,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
-Versión actual: `v0.2.0`, con tres proveedores (Anthropic, Gemini y OpenAI) y elección de proveedor, modelo y key en cada ejecución por consola. Ver [CHANGELOG](CHANGELOG.md).
+Versión actual: `v0.3.0`. Tres proveedores (Anthropic, Gemini y OpenAI) elegidos en cada ejecución, y agentes con **herramientas**: leen el repo y las issues, y con `/do` cambian archivos y corren tests en una rama local, siempre con tu aprobación. Cada uso registra grafo, modelo y consumo. Ver [CHANGELOG](CHANGELOG.md).
 
 ## Principios
 
@@ -196,6 +196,7 @@ agents:
 - [Decisión de distribución cerrada](docs/distribucion_cerrada.md)
 - [Política Git por proyecto](docs/git_workflow.md)
 - [Proveedores](docs/proveedores.md)
+- [Modos de consola: /plan, /task y /do](docs/modos_consola.md)
 - [Documentación individual de agentes](docs/agentes/)
 
 ## Proveedor
@@ -253,6 +254,23 @@ agent-dev-kit task . "descripción de la tarea"
 
 Antes de empezar, un menú pregunta proveedor, key (oculta, no se guarda) y modelo (lista en vivo del proveedor). Con `--provider` y `--model` se saltea el menú.
 
+Dentro de la sesión:
+
+```text
+/plan <pedido>   solo el plan
+/task <pedido>   plan + propuesta de cada agente (leen el repo, no lo modifican)
+/do   <pedido>   plan → OK → rama local desde develop → cambian archivos y corren tests → OK → commit local
+```
+
+Análisis de los grafos registrados:
+
+```bash
+agent-dev-kit graphs .
+agent-dev-kit candidates .
+```
+
+Detalle en [Modos de consola](docs/modos_consola.md).
+
 
 ## MCP
 
@@ -278,7 +296,7 @@ Un consumidor fija exactamente la versión publicada:
 
 ```bash
 python -m pip install \
-  "agent-dev-kit[openai,anthropic,gemini,mcp] @ git+https://github.com/robertosl77/agent-dev-kit.git@v0.2.0"
+  "agent-dev-kit[openai,anthropic,gemini,mcp] @ git+https://github.com/robertosl77/agent-dev-kit.git@v0.3.0"
 ```
 
 No se recomienda consumir `main` como dependencia estable.

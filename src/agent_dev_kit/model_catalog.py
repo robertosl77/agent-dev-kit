@@ -3,7 +3,8 @@
 The list always comes from the provider's own API with the person's key:
 there is no hard-coded model list to maintain (M-073, decision 3). Tags only
 show what the provider itself reports (decision 3b): nothing is guessed from
-model names.
+model names. The "thinking" capability is not shown because every current chat
+model reports it, so it does not distinguish models (M-075).
 """
 
 from __future__ import annotations
@@ -58,10 +59,6 @@ def _list_anthropic(api_key, client, base_url) -> list[ModelOption]:
     options = []
     for item in rows:
         tags: list[str] = []
-        capabilities = getattr(item, "capabilities", None)
-        thinking = getattr(capabilities, "thinking", None)
-        if getattr(thinking, "supported", False):
-            tags.append("piensa")
         line = getattr(item, "line", None)
         if line is None:
             line = (getattr(item, "model_extra", None) or {}).get("line")
@@ -94,12 +91,10 @@ def _list_gemini(api_key, client, base_url) -> list[ModelOption]:
             word in model_id for word in _GEMINI_EXCLUDE
         ):
             continue
-        tags = ("piensa",) if getattr(item, "thinking", False) else ()
         options.append(
             ModelOption(
                 id=model_id,
                 label=getattr(item, "display_name", None) or model_id,
-                tags=tags,
             )
         )
     return options
