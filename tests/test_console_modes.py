@@ -280,3 +280,28 @@ def test_graphs_and_candidates_read_the_log(project, capsys):
     assert "Usos registrados: 3" in report
     assert "documentation ×3" in report
     assert "la planificación (Triage) representa el 100%" in report
+
+
+def test_planner_missing_decisions_gets_one_repair(project):
+    runtime, messages = runtime_for(project)
+    incomplete = dict(PLAN, agent_decisions=[])
+    original = messages.create
+    state = {"planner": 0}
+
+    def create(**kwargs):
+        if kwargs.get("tool_choice", {}).get("name") == "submit_output":
+            state["planner"] += 1
+            if state["planner"] == 1:
+                messages.calls.append(kwargs)
+                return msg(tool("submit_output", incomplete, "p0"), stop="tool_use")
+        return original(**kwargs)
+
+    messages.create = create
+    io_, out = console()
+
+    run_plan_only(runtime, "T-066 README", io=io_, confirm_switch=no_switch)
+
+    assert state["planner"] == 2
+    repair_prompt = messages.calls[1]["messages"][0]["content"]
+    assert "documentation, reviewer" in repair_prompt
+    assert "doc-1 · documentation" in out.getvalue()

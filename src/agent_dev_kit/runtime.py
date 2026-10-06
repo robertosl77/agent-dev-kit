@@ -146,7 +146,9 @@ class DevAgentKit:
         self._validate_planner_result(planner, result)
 
         try:
-            plan = self._parse_planner_output(result.output)
+            plan = self._parse_and_validate_plan(result.output, request)
+        except DisabledAgentRequiredError:
+            raise
         except TaskPlanError as first_error:
             self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
@@ -167,7 +169,9 @@ class DevAgentKit:
             planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
-                plan = self._parse_planner_output(repaired.output)
+                plan = self._parse_and_validate_plan(repaired.output, request)
+            except DisabledAgentRequiredError:
+                raise
             except TaskPlanError as second_error:
                 raise TaskPlanError(
                     "Planner output remained invalid after one repair "
@@ -177,11 +181,6 @@ class DevAgentKit:
         planning_ms = (perf_counter() - started) * 1000
         plan.request = request
         plan.provider_calls = planning_calls
-        plan.validate_orchestration_policy(
-            self.agents.keys(),
-            request=plan.request,
-            project_policies=self.config.orchestration.policies,
-        )
         plan.trace = self._build_trace(
             plan,
             request=request,
@@ -221,7 +220,9 @@ class DevAgentKit:
         self._validate_planner_result(planner, result)
 
         try:
-            plan = self._parse_planner_output(result.output)
+            plan = self._parse_and_validate_plan(result.output, request)
+        except DisabledAgentRequiredError:
+            raise
         except TaskPlanError as first_error:
             self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
@@ -242,7 +243,9 @@ class DevAgentKit:
             planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
-                plan = self._parse_planner_output(repaired.output)
+                plan = self._parse_and_validate_plan(repaired.output, request)
+            except DisabledAgentRequiredError:
+                raise
             except TaskPlanError as second_error:
                 raise TaskPlanError(
                     "Planner output remained invalid after one repair "
@@ -252,11 +255,6 @@ class DevAgentKit:
         planning_ms = (perf_counter() - started) * 1000
         plan.request = request
         plan.provider_calls = planning_calls
-        plan.validate_orchestration_policy(
-            self.agents.keys(),
-            request=plan.request,
-            project_policies=self.config.orchestration.policies,
-        )
         plan.trace = self._build_trace(
             plan,
             request=request,
@@ -288,6 +286,18 @@ class DevAgentKit:
                 "Planning must execute without handoffs."
             )
 
+    def _parse_and_validate_plan(self, output: Any, request: str) -> TaskPlan:
+        """Parse and validate gates, so both kinds of error get one repair."""
+
+        plan = self._parse_planner_output(output)
+        plan.request = request
+        plan.validate_orchestration_policy(
+            self.agents.keys(),
+            request=request,
+            project_policies=self.config.orchestration.policies,
+        )
+        return plan
+
     @staticmethod
     def _parse_planner_output(output: Any) -> TaskPlan:
         if isinstance(output, str):
@@ -316,6 +326,10 @@ class DevAgentKit:
             "corrected TaskPlan only; do not explain the repair.\n\n"
             f"Original request:\n{request}\n\n"
             f"Validation error:\n{error}\n\n"
+            "agent_decisions must contain exactly one decision (selected true "
+            "or false, gate and reason) for EACH of these agents: "
+            + ", ".join(key for key in self.agents if key != "triage")
+            + ".\n\n"
             "Previous output:\n"
         )
         available = budget - len(fixed)
