@@ -39,6 +39,7 @@ class ModelPrice:
 
     input_per_mtok: float
     output_per_mtok: float
+    cached_input_per_mtok: float | None = None  # default: 10% of input
 
 
 def merge_usage(records: Iterable[UsageRecord]) -> list[UsageRecord]:
@@ -77,7 +78,15 @@ def estimate_cost(
         if price is None:
             return None
         seen = True
-        total += int(data.get("input_tokens") or 0) * price.input_per_mtok / 1_000_000
+        cached = int(data.get("cached_input_tokens") or 0)
+        fresh = max(int(data.get("input_tokens") or 0) - cached, 0)
+        cached_price = (
+            price.cached_input_per_mtok
+            if price.cached_input_per_mtok is not None
+            else price.input_per_mtok * 0.1
+        )
+        total += fresh * price.input_per_mtok / 1_000_000
+        total += cached * cached_price / 1_000_000
         total += int(data.get("output_tokens") or 0) * price.output_per_mtok / 1_000_000
     return total if seen else None
 
@@ -97,8 +106,14 @@ def format_usage_line(
             continue
         everything.extend(records)
         totals = total_tokens(records)
+        cached = sum(
+            int((r.to_dict() if isinstance(r, UsageRecord) else r).get("cached_input_tokens") or 0)
+            for r in records
+        )
+        cached_note = f" ({_n(cached)} de caché)" if cached else ""
         parts.append(
-            f"{label} {_n(totals['input_tokens'])} in / {_n(totals['output_tokens'])} out"
+            f"{label} {_n(totals['input_tokens'])} in{cached_note} / "
+            f"{_n(totals['output_tokens'])} out"
         )
         for record in records:
             data = record.to_dict() if isinstance(record, UsageRecord) else record

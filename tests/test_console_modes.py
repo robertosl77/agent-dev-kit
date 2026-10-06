@@ -186,7 +186,11 @@ def test_propose_reads_repo_but_does_not_change_it(project):
     node_call = messages.calls[1]
     names = {item["name"] for item in node_call["tools"]}
     assert "read_file" in names and "write_file" not in names
-    assert "Spanish (es)" in node_call["system"]
+    system = node_call["system"][0]["text"]
+    assert "Spanish (es)" in system
+    prompt = node_call["messages"][0]["content"][0]["text"]
+    assert "Original request from the person" in prompt and "T-066 README" in prompt
+    assert "Do not invent people, roles" in prompt
     assert "Propuesta basada en el README real." in out.getvalue()
     assert git(project, "status", "--porcelain") == ""
     record = traces(project)[-1]
@@ -302,6 +306,6 @@ def test_planner_missing_decisions_gets_one_repair(project):
     run_plan_only(runtime, "T-066 README", io=io_, confirm_switch=no_switch)
 
     assert state["planner"] == 2
-    repair_prompt = messages.calls[1]["messages"][0]["content"]
+    repair_prompt = messages.calls[1]["messages"][0]["content"][0]["text"]
     assert "documentation, reviewer" in repair_prompt
     assert "doc-1 · documentation" in out.getvalue()

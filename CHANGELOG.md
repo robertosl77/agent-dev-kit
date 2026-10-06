@@ -51,6 +51,23 @@ Issue paraguas: M-078 (#121).
   agentes convocados, peso de la planificación y candidatos de mejora
   (incluye `inconsistent_classification`). Solo propone; no cambia el routing.
 
+### Calidad de /do (M-079, primera prueba real con T-066)
+
+- cada nodo recibe el **pedido original de la persona** como fuente de verdad
+  (además del resumen de Triage, que perdía requisitos explícitos);
+- sin `project.language`, los agentes responden en el idioma del pedido;
+- regla explícita: no inventar personas, roles, procesos, reglas ni ejemplos;
+- en `/do` el agente debe releer lo que cambió y cerrar con un checklist
+  `[OK]` / `[PENDIENTE]` por requisito, con evidencia (archivo y línea);
+- nombre de rama sin acentos rotos (`seccion`, no `secci-n`) y sin otras
+  referencias de issue en el slug;
+- Anthropic: *prompt caching* de instrucciones, herramientas y conversación
+  (opción `prompt_caching`, activa por defecto); el consumo muestra los tokens
+  de caché y el costo los cotiza aparte (`cached_input_per_mtok`, por defecto
+  10% de la entrada);
+- un error del proveedor ya no cierra la sesión; un plan sin decisiones de
+  Triage pasa por el intento de reparación.
+
 ### Otros
 
 - M-075 (#118): se quita la etiqueta `[piensa]` del menú de modelos;

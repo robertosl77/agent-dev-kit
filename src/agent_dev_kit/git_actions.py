@@ -12,6 +12,7 @@ Nothing is pushed. Push and PR are done by the person, on explicit order.
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -149,7 +150,15 @@ def branch_slug(request: str, issue: str | None) -> str:
     text = request
     if issue:
         text = text.replace(issue, " ").replace(f"#{issue}", " ")
-    words = re.findall(r"[a-zA-Z0-9áéíóúñÁÉÍÓÚÑ]+", text.lower())
+    # Other issue references (e.g. "(#117)") are not part of the slug.
+    text = re.sub(r"#\d+|\b[A-Z]{1,3}-\d{1,5}\b", " ", text)
+    # "sección" → "seccion": drop accents instead of breaking the word.
+    text = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(char)
+    )
+    words = re.findall(r"[a-zA-Z0-9]+", text.lower())
     stop = {"el", "la", "los", "las", "de", "del", "en", "y", "a", "un", "una",
             "the", "to", "of", "and", "issue", "resolver", "para", "con", "que"}
     meaningful = [word for word in words if word not in stop][:5]

@@ -252,9 +252,11 @@ def pricing_from_mapping(data: Any) -> dict[str, ModelPrice]:
         if not isinstance(values, Mapping):
             raise ValueError(f"'pricing.{model}' must be a mapping.")
         try:
+            cached = values.get("cached_input_per_mtok")
             prices[str(model)] = ModelPrice(
                 input_per_mtok=float(values["input_per_mtok"]),
                 output_per_mtok=float(values["output_per_mtok"]),
+                cached_input_per_mtok=float(cached) if cached is not None else None,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(

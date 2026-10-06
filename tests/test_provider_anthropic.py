@@ -51,6 +51,11 @@ class FakeClient:
         self.messages = FakeMessages(responses)
 
 
+def system_text(call):
+    system = call["system"]
+    return system if isinstance(system, str) else system[0]["text"]
+
+
 def provider_with(responses, **kwargs):
     client = FakeClient(responses)
     provider = AnthropicProvider(
@@ -75,8 +80,16 @@ def test_text_answer_uses_agent_instructions_and_model():
     assert result.active_agent is agent
     call = messages.calls[0]
     assert call["model"] == "claude-test"
-    assert call["system"] == "Backend rules."
-    assert call["messages"] == [{"role": "user", "content": "hola"}]
+    assert system_text(call) == "Backend rules."
+    assert call["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert call["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hola", "cache_control": {"type": "ephemeral"}}
+            ],
+        }
+    ]
     assert "tools" not in call
 
 
@@ -97,7 +110,9 @@ def test_handoff_switches_active_agent_and_keeps_history():
     assert result.active_agent is backend
     first, second = messages.calls
     assert [tool["name"] for tool in first["tools"]] == ["transfer_to_agent_backend"]
-    assert second["system"] == "Backend rules."
+    assert system_text(second) == "Backend rules."
+    assert "cache_control" in second["messages"][-1]["content"][-1]
+    assert "cache_control" not in second["messages"][1]["content"][-1]
     assert second["messages"][1]["role"] == "assistant"
     assert second["messages"][2]["content"][0]["type"] == "tool_result"
     assert second["messages"][2]["content"][0]["tool_use_id"] == "call_1"
@@ -250,3 +265,10 @@ def test_plan_and_execute_task_end_to_end_with_anthropic_provider():
     assert [node.status for node in result.nodes] == ["completed"]
     assert result.nodes[0].output == "Backend corregido."
     assert messages.calls[0]["tool_choice"]["name"] == "submit_output"
+
+
+def test_prompt_caching_can_be_disabled_by_option():
+    provider, messages = provider_with([message(text("ok"))], options={"prompt_caching": False})
+    provider.run_sync(provider.create_agent(definition("Agent Backend", "R.")), "hola")
+    assert messages.calls[0]["system"] == "R."
+    assert messages.calls[0]["messages"] == [{"role": "user", "content": "hola"}]

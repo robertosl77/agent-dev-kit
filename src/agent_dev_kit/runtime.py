@@ -34,6 +34,9 @@ from agent_dev_kit.task_plan import (
 )
 
 
+MAX_REQUEST_IN_NODE_CHARS = 4000
+
+
 @dataclass(slots=True)
 class DevAgentKit:
     """Runtime-ready set of enabled agents for one consuming project."""
@@ -698,11 +701,31 @@ class DevAgentKit:
 
     def _node_prompt(self, plan: TaskPlan, node: TaskNode) -> str:
         summary = plan.profile.summary if plan.profile else plan.request
+        request = self._truncate_text(plan.request or "", MAX_REQUEST_IN_NODE_CHARS)
+        language_rule = (
+            ""
+            if self.config.language
+            else (
+                "Language: write every text meant for people (answers, "
+                "documents, comments, reports) in the same language as the "
+                "original request below. Keep code, identifiers, file names, "
+                "commands and branch names unchanged.\n\n"
+            )
+        )
         prefix = (
             "Execute only this DAG node. Do not hand off to another "
             "specialist; cross-specialist sequencing is owned by the task "
             "plan. If another responsibility is required, report it as a "
             "blocker.\n\n"
+            + language_rule
+            + "Original request from the person (source of truth: every "
+            "explicit requirement in it must be met exactly; the summary and "
+            "objective below only scope your part):\n"
+            f"{request}\n\n"
+            "Do not invent people, roles, processes, rules, facts or "
+            "examples that are not in the request, the referenced issue or "
+            "the repository. If something is missing, say so instead of "
+            "assuming it.\n\n"
             f"Task summary:\n{summary}\n\n"
             f"Node id: {node.id}\n"
             f"Phase: {node.phase}\n"

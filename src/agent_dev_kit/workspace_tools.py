@@ -573,7 +573,14 @@ MODE_NOTES = {
         "write_file or replace_in_file, and run the project's test commands with "
         "run_command when relevant. Do not commit, push or switch branches: the "
         "person reviews the diff and commits. If you only have read-only tools, "
-        "review the current changes (git_diff) and report findings."
+        "review the current changes (git_diff) and report findings.\n"
+        "Before finishing you MUST verify your work: re-read every file you "
+        "changed (read_file or git_diff) and check each explicit requirement of "
+        "the original request one by one against the actual file content. If "
+        "a requirement is not met, fix it and verify again. End your answer "
+        "with a checklist: one line per requirement, marked [OK] or [PENDIENTE] "
+        "with the evidence (file and line). Never mark [OK] something you did "
+        "not verify in the file."
     ),
 }
 
