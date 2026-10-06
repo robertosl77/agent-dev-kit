@@ -7,6 +7,7 @@ import yaml
 
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.provider_config import ProviderConfig, ProviderTargetConfig
+from agent_dev_kit.branding import identity_rule
 from agent_dev_kit.usage import ModelPrice
 from agent_dev_kit.gateway_config import (
     GatewayLifecycleConfig,
@@ -358,6 +359,7 @@ def apply_project_context(
     ).strip()
 
     context_parts = [
+        identity_rule(),
         "Consuming project context:",
         f"Project name: {config.name}",
         "Configured stack:",

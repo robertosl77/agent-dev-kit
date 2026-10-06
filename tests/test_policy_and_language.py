@@ -131,3 +131,9 @@ def test_workspace_config_is_parsed(tmp_path):
         )
     )
     assert config.workspace.test_commands == ()
+
+
+def test_every_agent_knows_who_designed_the_framework(tmp_path):
+    config = load_project_config(write_project(tmp_path))
+    for definition in build_enabled_definitions(config).values():
+        assert "designed by sr.macros@gmail.com" in definition.instructions
