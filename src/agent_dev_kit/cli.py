@@ -264,19 +264,23 @@ def run_conversation(
                 continue
             try:
                 run_task(runtime, request, mode=COMMAND_MODES[command])
-            except (GitActionError, GitPolicyViolation, TaskPlanError) as exc:
-                print(f"No se pudo completar {command}: {exc}")
+            except (GitActionError, GitPolicyViolation, TaskPlanError, ProviderError) as exc:
+                _report_in_session(f"No se pudo completar {command}", exc)
             continue
         if message == "/help":
             print(HELP_TEXT)
             continue
 
-        conversation, result = _ask_with_fallback(
-            runtime,
-            conversation,
-            message,
-            history,
-        )
+        try:
+            conversation, result = _ask_with_fallback(
+                runtime,
+                conversation,
+                message,
+                history,
+            )
+        except ProviderError as exc:
+            _report_in_session("No se pudo responder", exc)
+            continue
         history.append(("user", message))
         history.append(("assistant", result.output))
         print(f"{result.active_agent.name}> {result.output}")
@@ -311,6 +315,21 @@ def run_task(runtime: ProviderRuntime, request: str, *, mode: str = "propose") -
         return 0 if outcome.status in {"committed", "not_committed", "plan_rejected", "no_changes"} else 1
     run_propose(runtime, request, io=io, confirm_switch=confirm)
     return 0
+
+
+def _report_in_session(prefix: str, exc: Exception) -> None:
+    """Show the error and keep the session open (the key stays in memory)."""
+
+    print(f"{prefix}: {exc}")
+    cause = _error_cause(exc)
+    if cause:
+        print(f"  causa: {cause}")
+    text = f"{exc} {cause or ''}".lower()
+    if "404" in text or "not_found" in text or "not found" in text:
+        print(
+            "  El modelo elegido no está disponible para tu cuenta. Salí con /exit "
+            "y volvé a entrar eligiendo otro modelo de la lista."
+        )
 
 
 def run_graph_report(config, args) -> int:
