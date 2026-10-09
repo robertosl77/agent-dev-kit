@@ -78,6 +78,18 @@ Issue paraguas: M-078 (#121).
 - los errores genéricos del proveedor muestran el cuerpo de la respuesta
   (antes solo `Error code: 400`).
 
+### Planner: mapa riesgo → agente y reparación guiada (M-083, #126)
+
+- el prompt de planificación incluye el mapa `risk_flag -> agente requerido`
+  (generado desde `RISK_REQUIRED_AGENTS`, marcando `(disabled)`) y una regla de
+  autocontrol: flag sin su agente seleccionado = quitar el flag;
+- ante `Risk '<x>' requires selected agent '<y>'`, la reparación explica las dos
+  salidas válidas (quitar el flag, o seleccionar el agente **y** agregarle un
+  nodo); sigue siendo un solo reintento;
+- las salidas rechazadas del planner se guardan en
+  `.agent-dev-kit/runtime/planner-rejections.jsonl` (sin el pedido en claro) y
+  el error final indica la ruta.
+
 ### Otros
 
 - M-075 (#118): se quita la etiqueta `[piensa]` del menú de modelos;

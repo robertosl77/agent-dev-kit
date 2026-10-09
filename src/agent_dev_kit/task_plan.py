@@ -4,6 +4,7 @@ from typing import Any, Iterable, Mapping
 
 from agent_dev_kit.planner_contract import planner_payload_to_mapping
 from agent_dev_kit.orchestration_policy import (
+    RISK_REQUIRED_AGENTS,
     ProjectRoutingPolicy,
     coerce_durable_artifact,
     coerce_risk_flag,
@@ -565,6 +566,24 @@ def normalize_gate_key(value: str) -> str:
     )
 
 
+def render_risk_agent_map(enabled_agents: Iterable[str]) -> str:
+    """Render the deterministic risk -> agent gate map for planner prompts.
+
+    The validator enforces RISK_REQUIRED_AGENTS; the planner must see the same
+    map so it does not have to guess it (M-083).
+    """
+
+    enabled = {normalize_agent_key(item) for item in enabled_agents}
+    lines = []
+    for risk, agents in RISK_REQUIRED_AGENTS.items():
+        rendered = ", ".join(
+            agent if agent in enabled else f"{agent} (disabled)"
+            for agent in agents
+        )
+        lines.append(f"  - {risk} -> {rendered}")
+    return "\n".join(lines)
+
+
 def build_planning_prompt(
     request: str,
     *,
@@ -592,6 +611,7 @@ def build_planning_prompt(
         + ",".join(policy.require_agents)
         for policy in project_policies
     )
+    risk_lines = render_risk_agent_map(enabled)
 
     return f"""Planning-only operation. Do not hand off.
 
@@ -628,7 +648,12 @@ Rules:
   behavior_regression, technical_review, deployment_change,
   performance_risk, runtime_reliability, analytics_data, auth_change,
   schema_change, public_api_change, sensitive_data.
-- A declared risk flag requires its responsible enabled specialist.
+- A declared risk flag requires its responsible enabled specialist, selected
+  AND present in nodes. Map (risk flag -> required agents):
+{risk_lines}
+- Before answering, check consistency: for every flag in risk_flags, its
+  required agents must be selected with a node. If you do not want to select
+  that agent, the flag is not materially present: remove the flag instead.
 - Critical risks are also preclassified deterministically after Triage; omitting
   them here cannot bypass their required specialists.
 - Matching project policies can only add required specialists. If one is

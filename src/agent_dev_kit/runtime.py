@@ -1,4 +1,7 @@
+import json
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 from dataclasses import dataclass
 from hashlib import sha256
@@ -31,10 +34,16 @@ from agent_dev_kit.task_plan import (
     TaskPlan,
     TaskPlanError,
     build_planning_prompt,
+    render_risk_agent_map,
 )
 
 
 MAX_REQUEST_IN_NODE_CHARS = 4000
+MAX_REJECTED_OUTPUT_CHARS = 20000
+PLANNER_REJECTIONS_FILENAME = "planner-rejections.jsonl"
+_GATE_ERROR_PATTERN = re.compile(
+    r"((?:Risk|Artifact) '[^']+') requires selected agent '([^']+)'"
+)
 
 
 @dataclass(slots=True)
@@ -46,6 +55,7 @@ class DevAgentKit:
     agents: dict[str, AgentHandle]
     planner_agent: AgentHandle | None = None
     trace_store: OrchestrationTraceStore | None = None
+    rejection_log_path: Path | None = None
     execution_note: str = ""
     mode: str = "propose"
 
@@ -62,11 +72,13 @@ class DevAgentKit:
         mode: str = "propose",
     ) -> "DevAgentKit":
         trace_store = None
+        rejection_log_path = None
         if config.orchestration.trace_enabled and config.project_root is not None:
             trace_path = resolve_project_trace_path(
                 config.project_root,
                 config.orchestration.trace_path,
             )
+            rejection_log_path = trace_path.parent / PLANNER_REJECTIONS_FILENAME
             trace_store = OrchestrationTraceStore(
                 trace_path,
                 max_entries=config.orchestration.trace_max_entries,
@@ -104,6 +116,7 @@ class DevAgentKit:
             agents=agents,
             planner_agent=planner_agent,
             trace_store=trace_store,
+            rejection_log_path=rejection_log_path,
             execution_note=execution_note,
             mode=mode,
         )
@@ -153,6 +166,12 @@ class DevAgentKit:
         except DisabledAgentRequiredError:
             raise
         except TaskPlanError as first_error:
+            self._record_planner_rejection(
+                request=request,
+                stage="planning",
+                output=result.output,
+                error=first_error,
+            )
             self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
                 request=request,
@@ -176,9 +195,16 @@ class DevAgentKit:
             except DisabledAgentRequiredError:
                 raise
             except TaskPlanError as second_error:
+                saved = self._record_planner_rejection(
+                    request=request,
+                    stage="planning_repair",
+                    output=repaired.output,
+                    error=second_error,
+                )
+                hint = f" Salidas rechazadas en: {saved}" if saved else ""
                 raise TaskPlanError(
                     "Planner output remained invalid after one repair "
-                    f"attempt: {second_error}"
+                    f"attempt: {second_error}{hint}"
                 ) from second_error
 
         planning_ms = (perf_counter() - started) * 1000
@@ -227,6 +253,12 @@ class DevAgentKit:
         except DisabledAgentRequiredError:
             raise
         except TaskPlanError as first_error:
+            self._record_planner_rejection(
+                request=request,
+                stage="planning",
+                output=result.output,
+                error=first_error,
+            )
             self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
                 request=request,
@@ -250,9 +282,16 @@ class DevAgentKit:
             except DisabledAgentRequiredError:
                 raise
             except TaskPlanError as second_error:
+                saved = self._record_planner_rejection(
+                    request=request,
+                    stage="planning_repair",
+                    output=repaired.output,
+                    error=second_error,
+                )
+                hint = f" Salidas rechazadas en: {saved}" if saved else ""
                 raise TaskPlanError(
                     "Planner output remained invalid after one repair "
-                    f"attempt: {second_error}"
+                    f"attempt: {second_error}{hint}"
                 ) from second_error
 
         planning_ms = (perf_counter() - started) * 1000
@@ -315,6 +354,60 @@ class DevAgentKit:
             strict_schema=True,
         )
 
+    def _record_planner_rejection(
+        self,
+        *,
+        request: str,
+        stage: str,
+        output: Any,
+        error: TaskPlanError,
+    ) -> Path | None:
+        """Append a rejected planner output to the local JSONL log (M-083).
+
+        Best-effort diagnostics: a logging failure never hides the planning
+        error. Lives next to the orchestration traces (gitignored runtime dir).
+        """
+
+        path = self.rejection_log_path
+        if path is None:
+            return None
+        rendered = output if isinstance(output, str) else _render_output(output)
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "stage": stage,
+            "error": str(error),
+            "request_fingerprint": fingerprint_request(request),
+            "output": self._truncate_text(rendered, MAX_REJECTED_OUTPUT_CHARS),
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError:
+            return None
+        return path
+
+    def _gate_repair_guidance(self, error: TaskPlanError) -> str:
+        """Spell out the valid exits for a risk/artifact gate error (M-083)."""
+
+        match = _GATE_ERROR_PATTERN.search(str(error))
+        if match is None:
+            return ""
+        source, agent = match.group(1), match.group(2)
+        return (
+            f"How to fix this gate error ({source} -> '{agent}'), choose ONE:\n"
+            f"  a) If {source} is not materially present in the request, "
+            "remove it from the profile and keep the rest of the plan.\n"
+            f"  b) If it is present, set agent '{agent}' to selected: true "
+            f"AND add a node with agent '{agent}' (usually phase analysis) "
+            "wired with depends_on where it feeds other nodes.\n"
+            "Do not keep the flag while omitting the agent: that is the same "
+            "invalid plan again.\n"
+            "Risk flag -> required agents:\n"
+            + render_risk_agent_map(self.agents.keys())
+            + "\n\n"
+        )
+
     def _planning_repair_prompt(
         self,
         *,
@@ -333,7 +426,8 @@ class DevAgentKit:
             "or false, gate and reason) for EACH of these agents: "
             + ", ".join(key for key in self.agents if key != "triage")
             + ".\n\n"
-            "Previous output:\n"
+            + self._gate_repair_guidance(error)
+            + "Previous output:\n"
         )
         available = budget - len(fixed)
         if available <= 0:
@@ -1011,3 +1105,13 @@ class DevConversation:
         raise ValueError(
             f"Provider returned unknown active agent '{result_handle.name}'."
         )
+
+
+def _render_output(output: Any) -> str:
+    dump = getattr(output, "model_dump", None)
+    if callable(dump):
+        try:
+            return json.dumps(dump(mode="json"), ensure_ascii=False)
+        except (TypeError, ValueError):
+            pass
+    return str(output)
