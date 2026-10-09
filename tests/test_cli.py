@@ -110,7 +110,7 @@ def test_multiline_task_is_sent_as_one_request(monkeypatch, capsys):
     assert cli.run_conversation(FakeRuntime()) == 0
     assert calls == [("primera línea\nsegunda línea", "propose")]
     out = capsys.readouterr().out
-    assert "Terminá con una línea que contenga solo /end." in out
+    assert "Escribí o pegá el pedido. Para terminar, escribí /end en una línea aparte." in out
 
 
 def test_multiline_plan_and_do_use_their_modes(monkeypatch):
