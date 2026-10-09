@@ -40,6 +40,7 @@ from agent_dev_kit.task_plan import (
 
 MAX_REQUEST_IN_NODE_CHARS = 4000
 MAX_REJECTED_OUTPUT_CHARS = 20000
+_PLAN_SLOT = "\x00plan-context\x00"
 PLANNER_REJECTIONS_FILENAME = "planner-rejections.jsonl"
 _GATE_ERROR_PATTERN = re.compile(
     r"((?:Risk|Artifact) '[^']+') requires selected agent '([^']+)'"
@@ -821,7 +822,8 @@ class DevAgentKit:
             "the repository. If something is missing, say so instead of "
             "assuming it.\n\n"
             f"Task summary:\n{summary}\n\n"
-            f"Node id: {node.id}\n"
+            + _PLAN_SLOT
+            + f"Node id: {node.id}\n"
             f"Phase: {node.phase}\n"
             f"Your responsibility: {node.agent}\n"
             f"Objective:\n{node.objective}\n\n"
@@ -834,13 +836,14 @@ class DevAgentKit:
         )
 
         context_limit = self.config.orchestration.budgets.max_context_chars
-        available = context_limit - len(prefix) - len(suffix)
+        mandatory = prefix.replace(_PLAN_SLOT, "")
+        available = context_limit - len(mandatory) - len(suffix)
         if available < 0:
             self._raise_budget(
                 plan,
                 budget="max_context_chars",
                 limit=context_limit,
-                actual=len(prefix) + len(suffix),
+                actual=len(mandatory) + len(suffix),
                 stage="execution",
                 node=node,
                 message=(
@@ -848,6 +851,18 @@ class DevAgentKit:
                     "dependency evidence is included."
                 ),
             )
+
+        # The real plan (M-084) is useful but optional: dependency evidence
+        # keeps priority, and the plan is included only when it fits whole.
+        evidence_reserve = min(
+            self.config.orchestration.budgets.max_dependency_evidence_chars,
+            available,
+        )
+        plan_context = self._plan_context(plan)
+        if len(plan_context) > available - evidence_reserve:
+            plan_context = ""
+        prefix = prefix.replace(_PLAN_SLOT, plan_context)
+        available -= len(plan_context)
 
         evidence_limit = min(
             self.config.orchestration.budgets.max_dependency_evidence_chars,
@@ -873,6 +888,51 @@ class DevAgentKit:
             )
 
         return prompt
+
+    @staticmethod
+    def _plan_context(plan: TaskPlan) -> str:
+        """The real plan decided by Triage, so nodes report it as-is (M-084)."""
+
+        def short(text: str, limit: int = 240) -> str:
+            text = " ".join(str(text or "").split())
+            return text if len(text) <= limit else text[: limit - 3] + "..."
+
+        selected = [item for item in plan.agent_decisions if item.selected]
+        omitted = [item for item in plan.agent_decisions if not item.selected]
+        lines = [
+            "Task plan decided by Triage (the planner). If you must report the "
+            "plan or the selected/omitted agents, copy this exactly; do not "
+            "reconstruct it. Triage is the planner, not a candidate agent."
+        ]
+        lines.append("Selected agents:")
+        lines.extend(
+            f"- {item.agent}: {short(item.reason)}" for item in selected
+        )
+        if not selected:
+            lines.append("- (none)")
+        lines.append("Omitted agents:")
+        lines.extend(
+            f"- {item.agent}: {short(item.reason)}" for item in omitted
+        )
+        if not omitted:
+            lines.append("- (none)")
+        if plan.required_disabled_agents:
+            lines.append(
+                "Required but disabled: "
+                + ", ".join(plan.required_disabled_agents)
+            )
+        lines.append("Nodes:")
+        for item in plan.nodes:
+            after = (
+                f" (after {', '.join(item.depends_on)})"
+                if item.depends_on
+                else ""
+            )
+            lines.append(
+                f"- {item.id} [{item.agent}, {item.phase}]{after}: "
+                f"{short(item.objective)}"
+            )
+        return "\n".join(lines) + "\n\n"
 
     def _dependency_context(
         self,

@@ -191,6 +191,9 @@ def test_propose_reads_repo_but_does_not_change_it(project):
     prompt = node_call["messages"][0]["content"][0]["text"]
     assert "Original request from the person" in prompt and "T-066 README" in prompt
     assert "Do not invent people, roles" in prompt
+    assert "Task plan decided by Triage" in prompt
+    assert "Selected agents:\n- documentation:" in prompt
+    assert "Nodes:\n- doc-1 [documentation," in prompt
     assert "Propuesta basada en el README real." in out.getvalue()
     assert git(project, "status", "--porcelain") == ""
     record = traces(project)[-1]

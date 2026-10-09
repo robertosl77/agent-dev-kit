@@ -28,7 +28,8 @@ agent-dev-kit task . "T-066 pedido" --mode act # acción
 | `list_files` | todos | lista archivos (omite `.git`, `node_modules`, entornos virtuales y secretos) |
 | `read_file` | todos | lee un archivo con números de línea, por tramos |
 | `search` | todos | busca una expresión regular en el proyecto |
-| `git_status` / `git_log` / `git_diff` | todos | estado, historial y cambios (solo lectura) |
+| `git_status` / `git_log` / `git_diff` | todos | estado, historial (con fecha y autor) y cambios (solo lectura) |
+| `git_branches` | todos | ramas locales y de `origin` según el último `git fetch` (no consulta GitHub en vivo); sirve para verificar nombres de ramas |
 | `read_issue` | todos | lee una issue de GitHub del proyecto (título, cuerpo y comentarios) |
 | `write_file` / `replace_in_file` | `/do` | crea o modifica archivos |
 | `run_command` | `/do` | corre comandos declarados por el proyecto |
@@ -50,6 +51,23 @@ Se cambia por agente en `.agent-dev-kit/agents/<agente>.yaml`:
 agent: security
 access: read_only      # o read_write
 ```
+
+### Qué recibe cada agente y cómo verifica (M-084)
+
+- además del pedido original, cada nodo recibe **el plan real de Triage**:
+  agentes seleccionados y omitidos con su motivo, y la lista de nodos. Si el
+  pedido pide informar el plan o los agentes, lo copia tal cual (no lo
+  reconstruye). Si no entra en el presupuesto de contexto, se omite; la
+  evidencia de dependencias tiene prioridad;
+- reglas de verificación en `/task` y `/do`:
+  1. si un criterio nombra una fuente (documento, sección, lista de tareas),
+     se busca esa fuente; no se reemplaza por otra (p. ej. `project.yaml`).
+     Si no aparece, el criterio queda `[PENDIENTE]`;
+  2. los nombres concretos (ramas, archivos, personas, comandos, ejemplos) se
+     verifican contra el repo; los que no se pueden verificar se informan;
+  3. se distingue política declarada (configuración) de estado real de la
+     plataforma (p. ej. protecciones en GitHub);
+  4. nunca `[OK]` sin evidencia de la fuente exacta.
 
 ## Flujo de /do y aprobaciones
 

@@ -9,7 +9,7 @@ Issue paraguas: M-078 (#121).
 ### Herramientas y modos (M-076, #119)
 
 - herramientas incluidas para los agentes: `list_files`, `read_file`, `search`,
-  `git_status`, `git_log`, `git_diff`, `read_issue` (todos los modos) y
+  `git_status`, `git_branches`, `git_log`, `git_diff`, `read_issue` (todos los modos) y
   `write_file`, `replace_in_file`, `run_command` (solo `/do`);
 - sandbox del framework: paths dentro del proyecto, sin `.git/`, sin escribir
   `.agent-dev-kit/`, sin leer ni escribir `.env*` (salvo `.env.example`);
@@ -89,6 +89,17 @@ Issue paraguas: M-078 (#121).
 - las salidas rechazadas del planner se guardan en
   `.agent-dev-kit/runtime/planner-rejections.jsonl` (sin el pedido en claro) y
   el error final indica la ruta.
+
+### Verificación de los agentes (M-084, #127)
+
+- cada nodo recibe el plan real de Triage (agentes seleccionados/omitidos con
+  motivo y nodos) para informarlo sin reconstruirlo; se omite si no entra en
+  el presupuesto de contexto;
+- nueva herramienta `git_branches` (ramas locales y de `origin` según el último
+  fetch); `git_log` muestra fecha y autor;
+- reglas de verificación en `/task` y `/do`: validar contra la fuente exacta que
+  nombra cada criterio, verificar nombres concretos contra el repo, distinguir
+  política declarada de estado real, y nunca `[OK]` sin evidencia.
 
 ### Otros
 

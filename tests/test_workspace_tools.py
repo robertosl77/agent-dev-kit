@@ -119,3 +119,36 @@ def test_read_issue_anonymous_then_token_when_private(repo, monkeypatch):
     assert "#7 [open] Arreglar" in text and "comentario" in text
     assert calls[0] == ("/repos/acme/demo/issues/7", None)
     assert calls[1][1] == "tok" and len(asked) == 1
+
+
+# --- M-084: verificar nombres de ramas y autor de commits -----------------
+
+
+def test_git_branches_lists_local_and_remote_tracking(repo):
+    git(repo, "branch", "feat/t-001-demo")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    ws = Workspace(repo)
+
+    output = ws.git_branches({})
+
+    assert "not a live query to GitHub" in output
+    assert "develop" in output and "feat/t-001-demo" in output
+    assert "origin/main" in output
+    assert "git_branches" in {tool.name for tool in ws.tools(READ)}
+
+
+def test_git_log_includes_author_and_date(repo):
+    output = Workspace(repo).git_log({})
+
+    assert " t " in output and "init" in output
+    assert len(output.split()[1]) == 10  # YYYY-MM-DD
+
+
+def test_propose_mode_note_includes_verification_rules():
+    from agent_dev_kit.workspace_tools import MODE_NOTES
+
+    for mode in ("propose", "act"):
+        note = MODE_NOTES[mode]
+        assert "Never substitute a different source" in note
+        assert "git_branches" in note
+        assert "declared configuration or policy" in note

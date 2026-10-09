@@ -224,10 +224,38 @@ class Workspace:
 
     def git_log(self, args: dict[str, Any]) -> str:
         count = max(min(int(args.get("count") or 15), 100), 1)
-        command = ["log", f"-{count}", "--oneline", "--decorate"]
+        command = [
+            "log",
+            f"-{count}",
+            "--date=short",
+            "--pretty=format:%h %ad %an%d %s",
+        ]
         if args.get("path"):
             command += ["--", self.rel(self.resolve(args.get("path")))]
         return self._git_read("git_log", command)
+
+    def git_branches(self, args: dict[str, Any]) -> str:
+        """Local and remote-tracking branches known to this clone (M-084).
+
+        It reflects the last fetch, not a live query to the hosting platform.
+        """
+
+        output = self._git_read(
+            "git_branches",
+            ["branch", "--all", "--format=%(refname:short)"],
+        )
+        names = [
+            line.strip()
+            for line in output.splitlines()
+            if line.strip() and not line.strip().endswith("/HEAD")
+            and line.strip() != "origin"
+        ]
+        if not names:
+            return "(no branches)"
+        return (
+            "Branches known to this local clone (as of the last git fetch; "
+            "not a live query to GitHub):\n" + "\n".join(names)
+        )
 
     def git_diff(self, args: dict[str, Any]) -> str:
         command = ["diff"]
@@ -437,8 +465,14 @@ class Workspace:
             ),
             BuiltinTool("git_status", "Show the current branch and changed files.", _schema({}), self.git_status),
             BuiltinTool(
+                "git_branches",
+                "List local and remote-tracking branches of this clone (last fetch, not live GitHub). Use it to verify branch names.",
+                _schema({}),
+                self.git_branches,
+            ),
+            BuiltinTool(
                 "git_log",
-                "Show recent commits, optionally for one path.",
+                "Show recent commits (hash, date, author, refs, subject), optionally for one path.",
                 _schema({"count": {"type": "integer"}, "path": path_param}),
                 self.git_log,
             ),
@@ -560,12 +594,35 @@ def _github_error(exc: urllib.error.HTTPError) -> str:
     return f"GitHub error {exc.code}."
 
 
+VERIFICATION_RULES = (
+    "Verification rules:\n"
+    "1. When a requirement or acceptance criterion names a source (a "
+    "document, section, task list, rule or file), find that exact source in "
+    "the repository (search, list_files, read_file) and evaluate against it. "
+    "Never substitute a different source (for example a config file) for "
+    "the one named. If you cannot find it, mark the item [PENDIENTE] and "
+    "say which source is missing.\n"
+    "2. Audit concrete names in the content you review or write (branches, "
+    "files, people, commands, examples): verify each one against the "
+    "repository (git_branches, list_files, search). Report any name you "
+    "cannot verify as a problem, even if the text looks plausible.\n"
+    "3. Distinguish declared configuration or policy (for example "
+    "project.yaml) from verified live platform state (for example branch "
+    "protections on GitHub). If a document states a policy as verified "
+    "fact, report it as a problem.\n"
+    "4. Never mark [OK] without evidence from the exact source (file and "
+    "line). When unsure, [PENDIENTE] is the correct answer."
+)
+
+
 MODE_NOTES = {
     "propose": (
         "You can inspect the current project with read-only tools (list_files, "
-        "read_file, search, git_status, git_log, git_diff, read_issue). Inspect "
-        "the relevant files before proposing; never invent file contents, "
-        "structure or repository state. Do not modify anything."
+        "read_file, search, git_status, git_branches, git_log, git_diff, "
+        "read_issue). Inspect the relevant files before proposing; never "
+        "invent file contents, structure or repository state. Do not modify "
+        "anything.\n"
+        + VERIFICATION_RULES
     ),
     "act": (
         "You are working on a local task branch of the project. First inspect "
@@ -580,7 +637,8 @@ MODE_NOTES = {
         "a requirement is not met, fix it and verify again. End your answer "
         "with a checklist: one line per requirement, marked [OK] or [PENDIENTE] "
         "with the evidence (file and line). Never mark [OK] something you did "
-        "not verify in the file."
+        "not verify in the file.\n"
+        + VERIFICATION_RULES
     ),
 }
 
