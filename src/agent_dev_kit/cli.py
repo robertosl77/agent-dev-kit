@@ -308,7 +308,7 @@ Cualquier otro texto es una conversación (los agentes pueden leer el repo)."""
 
 
 def _read_multiline_request() -> str:
-    print("Pegá el pedido. Terminá con una línea que contenga solo /end.")
+    print("Escribí o pegá el pedido. Para terminar, escribí /end en una línea aparte.")
     lines: list[str] = []
     while True:
         try:
