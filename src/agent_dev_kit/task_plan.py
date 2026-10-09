@@ -64,6 +64,13 @@ class TaskPlan:
     node_attempts: dict[str, int] = field(default_factory=dict)
     calls_avoided_by_reuse: int = 0
     execution_status: str = "planned"
+    facts: Any = None  # task_facts.TaskFacts, resolved in code before nodes (M-085)
+
+    def final_nodes(self) -> list[TaskNode]:
+        """Nodes no other node depends on: their output goes to the person."""
+
+        needed = {dep for node in self.nodes for dep in node.depends_on}
+        return [node for node in self.nodes if node.id not in needed]
 
     @classmethod
     def from_json(
@@ -637,7 +644,7 @@ Deterministic project policies (enforced independently after planning):
 Rules:
 - Use responsibilities, not technologies, to choose agents.
 - Return one explicit selected/omitted decision for EVERY enabled specialist
-  except triage. Every decision requires a concise reason.
+  except triage. Every decision requires a reason of at most 12 words.
 - Selected decisions must match exactly the specialist agents present in nodes.
 - Never substitute a disabled specialist with another agent.
 - If a disabled specialist is materially required, add it to

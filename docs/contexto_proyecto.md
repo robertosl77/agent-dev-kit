@@ -23,7 +23,13 @@ Antes de crear un agente habilitado, Agent Dev Kit incorpora a sus instrucciones
 - nombre del proyecto consumidor;
 - stack declarado en `.agent-dev-kit/project.yaml`;
 - `extra_instructions` del agente;
-- `project_rules` del agente.
+- `project_rules` del agente;
+- la política `git_workflow`, presentada como lo que el framework aplica en
+  código (configuración declarada, subconjunto de las reglas del proyecto; no
+  es estado verificado de GitHub);
+- `context.rule_sources`: los documentos del repo que mandan en cada tema
+  (M-085). Cuando una tarea depende de esas reglas, el agente las lee y las
+  sigue por encima del resumen de `git_workflow`.
 
 ## Qué NO se inyecta
 

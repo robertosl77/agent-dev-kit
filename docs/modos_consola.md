@@ -52,22 +52,34 @@ agent: security
 access: read_only      # o read_write
 ```
 
-### Qué recibe cada agente y cómo verifica (M-084)
+### Qué resuelve el framework y qué el modelo (M-084, M-085)
 
-- además del pedido original, cada nodo recibe **el plan real de Triage**:
-  agentes seleccionados y omitidos con su motivo, y la lista de nodos. Si el
-  pedido pide informar el plan o los agentes, lo copia tal cual (no lo
-  reconstruye). Si no entra en el presupuesto de contexto, se omite; la
-  evidencia de dependencias tiene prioridad;
-- reglas de verificación en `/task` y `/do`:
-  1. si un criterio nombra una fuente (documento, sección, lista de tareas),
-     se busca esa fuente; no se reemplaza por otra (p. ej. `project.yaml`).
-     Si no aparece, el criterio queda `[PENDIENTE]`;
-  2. los nombres concretos (ramas, archivos, personas, comandos, ejemplos) se
-     verifican contra el repo; los que no se pueden verificar se informan;
-  3. se distingue política declarada (configuración) de estado real de la
-     plataforma (p. ej. protecciones en GitHub);
-  4. nunca `[OK]` sin evidencia de la fuente exacta.
+Lo que se puede verificar con código no se le pide al modelo:
+
+```text
+/task o /do
+  0. rama actual ≠ develop → aviso y pregunta (en /task; /do ya parte de develop)   ← sin tokens
+  1. Triage planifica (motivos ≤ 12 palabras)
+  2. hoja de hechos (código):                                                       ← sin tokens
+       rama actual · ramas conocidas · fuentes de reglas (context.rule_sources)
+       issue ya leída · criterios CA-1…n (los que refieren a reglas, marcados)
+       ramas escritas en los archivos citados que no existen en git
+  3. el agente trabaja con el pedido + hechos + plan real (sin herramientas transfer_to_*)
+  4. control del veredicto (código):                                                ← sin tokens
+       [OK] CA-n | path:línea | "texto exacto"
+       cita inexistente / texto que no está en esa línea / OK sin cita /
+       criterio de reglas que no cita la fuente   →  [PENDIENTE] + motivo
+       criterio no evaluado                       →  se agrega [PENDIENTE]
+```
+
+- El control solo baja de `OK` a `PENDIENTE`; nunca sube.
+- El plan real de Triage llega al nodo para informarlo tal cual (se omite si no
+  cabe en el presupuesto). Los hechos tienen prioridad sobre el plan; un nodo sin
+  dependencias no reserva espacio para evidencia que no tiene.
+- El nodo final sabe que su salida va directo a la persona: formato pedido, sin
+  preámbulo, nada fuera del pedido salvo una línea de hallazgos colaterales.
+- Si el pedido apunta a una fuente que contradice los hechos o las fuentes de
+  reglas, manda la fuente y el agente señala la contradicción.
 
 ## Flujo de /do y aprobaciones
 
@@ -106,6 +118,10 @@ workspace:
   max_read_bytes: 60000     # tope por lectura (cuida el consumo)
   max_search_results: 50
   command_timeout_seconds: 600
+
+context:
+  rule_sources:             # documento del repo que manda en cada tema (M-085)
+    git_workflow: "docs/tareas_pendientes_v0_1.md#4. Regla de ramas a partir de ahora"
 
 pricing:                    # opcional: para mostrar el costo estimado
   claude-haiku-4-5: {input_per_mtok: 1.0, output_per_mtok: 5.0}

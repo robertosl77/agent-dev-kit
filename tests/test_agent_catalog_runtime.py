@@ -153,7 +153,7 @@ def test_git_workflow_policy_is_injected_into_agent_context():
     definitions = build_enabled_definitions(config)
     instructions = definitions["pmo"].instructions
 
-    assert "Git workflow policy:" in instructions
+    assert "Git workflow policy enforced by Agent Dev Kit in code" in instructions
     assert "production: main" in instructions
     assert "integration: development" in instructions
     assert "explicit human authorization" in instructions

@@ -125,8 +125,12 @@ def create_enabled_agents(
     tool_registry: ToolRegistry | None = None,
     preference_profile: PreferenceProfile | None = None,
     builtin_tools: "Callable[[str], tuple] | None" = None,
+    with_handoffs: bool = True,
 ) -> dict[str, AgentHandle]:
     """Instantiate only enabled agents.
+
+    ``with_handoffs=False`` builds DAG-node agents (M-085): the task plan owns
+    cross-specialist sequencing, so nodes get no ``transfer_to_*`` tools.
 
     Triage, when enabled, is created last and receives handoffs only to the
     other enabled agents. Disabled agents are neither instantiated nor exposed
@@ -175,6 +179,9 @@ def create_enabled_agents(
             handles["triage"] = provider.create_agent(
                 definitions["triage"],
             )
+
+    if not with_handoffs:
+        return handles
 
     capability_graph = build_enabled_capability_graph(handles.keys())
     for source, targets in capability_graph.items():

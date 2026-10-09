@@ -595,23 +595,12 @@ def _github_error(exc: urllib.error.HTTPError) -> str:
 
 
 VERIFICATION_RULES = (
-    "Verification rules:\n"
-    "1. When a requirement or acceptance criterion names a source (a "
-    "document, section, task list, rule or file), find that exact source in "
-    "the repository (search, list_files, read_file) and evaluate against it. "
-    "Never substitute a different source (for example a config file) for "
-    "the one named. If you cannot find it, mark the item [PENDIENTE] and "
-    "say which source is missing.\n"
-    "2. Audit concrete names in the content you review or write (branches, "
-    "files, people, commands, examples): verify each one against the "
-    "repository (git_branches, list_files, search). Report any name you "
-    "cannot verify as a problem, even if the text looks plausible.\n"
-    "3. Distinguish declared configuration or policy (for example "
-    "project.yaml) from verified live platform state (for example branch "
-    "protections on GitHub). If a document states a policy as verified "
-    "fact, report it as a problem.\n"
-    "4. Never mark [OK] without evidence from the exact source (file and "
-    "line). When unsure, [PENDIENTE] is the correct answer."
+    "Verification: evaluate each requirement or criterion against the exact "
+    "source it names (the facts list the project's rule sources); Never "
+    "substitute a different source such as project.yaml. Report every "
+    "concrete name you cannot verify (branches: git_branches or the facts). "
+    "Keep declared configuration or policy apart from verified GitHub "
+    "state. Never mark [OK] without a citation: file:line and the exact text."
 )
 
 

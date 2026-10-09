@@ -101,6 +101,23 @@ Issue paraguas: M-078 (#121).
   nombra cada criterio, verificar nombres concretos contra el repo, distinguir
   política declarada de estado real, y nunca `[OK]` sin evidencia.
 
+### Controles en código (M-085, #128)
+
+- `/task` avisa y pregunta si la rama actual no es la de integración (antes
+  de gastar);
+- los nodos del DAG no reciben herramientas `transfer_to_*`;
+- `context.rule_sources` en `project.yaml`: documento del repo que manda en
+  cada tema; el bloque `git_workflow` inyectado se presenta como subconjunto
+  aplicado en código, no como estado de GitHub;
+- hoja de hechos (código, sin tokens) para el nodo: rama, ramas conocidas,
+  fuentes de reglas, issue ya leída, criterios de aceptación extraídos y ramas
+  escritas en archivos que no existen en git;
+- veredicto verificado: `[OK] CA-n | path:línea | "texto"`; cita falsa, sin
+  cita o criterio de reglas que no cita su fuente pasan a `[PENDIENTE]`;
+  criterios omitidos se agregan como `[PENDIENTE]`;
+- el nodo final sabe que su salida es la respuesta; motivos del planner ≤ 12
+  palabras.
+
 ### Otros
 
 - M-075 (#118): se quita la etiqueta `[piensa]` del menú de modelos;

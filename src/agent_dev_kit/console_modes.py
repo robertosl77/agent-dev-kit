@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, TextIO
 
 from agent_dev_kit.execution import ProviderRuntime
+from agent_dev_kit.task_facts import build_facts, verify_verdict
 from agent_dev_kit.git_actions import (
     GitActionError,
     branch_kind,
@@ -109,22 +110,67 @@ def run_plan_only(
     return plan
 
 
+def _facts(workspace: Any, config: Any, request: str) -> Any:
+    """Resolve verifiable facts in code once per task (M-085); never fatal."""
+
+    try:
+        return build_facts(workspace, config, request)
+    except Exception:  # facts are an aid; the agent can still use its tools
+        return None
+
+
+def _verify_outputs(plan: TaskPlan, workspace: Any) -> None:
+    """Check the final nodes' verdicts against the cited files (M-085)."""
+
+    facts = plan.facts
+    if facts is None or workspace is None:
+        return
+    for node in plan.final_nodes():
+        if node.output:
+            node.output, _ = verify_verdict(str(node.output), facts, workspace)
+
+
+def _accept_current_branch(runtime: ProviderRuntime, io: ConsoleIO) -> bool:
+    """/task reads the files of the current branch: warn before spending (M-085)."""
+
+    root = runtime.workspace.root
+    if not is_git_repository(root):
+        return True
+    branch = current_branch(root)
+    integration = runtime.project_config.git_workflow.integration_branch
+    if not branch or branch == integration:
+        return True
+    io.say(
+        f"Estás en la rama '{branch}', no en '{integration}'. "
+        "/task analiza los archivos de la rama actual."
+    )
+    if io.confirm(f"¿Analizar igual sobre '{branch}'?"):
+        return True
+    io.say(f"Cancelado. No se gastó nada. Pasate a '{integration}' y repetí.")
+    return False
+
+
 def run_propose(
     runtime: ProviderRuntime,
     request: str,
     *,
     io: ConsoleIO,
     confirm_switch: Confirm,
-) -> TaskPlan:
+) -> TaskPlan | None:
     if runtime.workspace is not None:
+        if not _accept_current_branch(runtime, io):
+            return None
         runtime.workspace.events.clear()
     plan = _plan(runtime, request, confirm_switch)
     if runtime.workspace is not None:
         runtime.workspace.bind_trace(plan.trace)
+    if runtime.workspace is not None:
+        plan.facts = _facts(runtime.workspace, runtime.project_config, request)
     result = runtime.run_with_fallback_sync(
         lambda kit: kit.execute_plan_sync(plan),
         confirm_switch=confirm_switch,
     )
+    _verify_outputs(result, runtime.workspace)
     for node in result.nodes:
         io.say(f"[{node.status}] {node.id} ({node.agent})\n{node.output or ''}")
     io.say(format_usage_line(usage_stages(result.trace), runtime.project_config.pricing))
@@ -214,10 +260,12 @@ def run_act(
 
     # Agents work on the branch with write tools.
     workspace.bind_trace(plan.trace)
+    plan.facts = _facts(workspace, config, request)
     result = act_runtime.run_with_fallback_sync(
         lambda kit: kit.execute_plan_sync(plan),
         confirm_switch=confirm_switch,
     )
+    _verify_outputs(result, workspace)
     for node in result.nodes:
         io.say(f"[{node.status}] {node.id} ({node.agent})\n{node.output or ''}")
 

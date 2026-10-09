@@ -36,6 +36,7 @@ from agent_dev_kit.task_plan import (
     build_planning_prompt,
     render_risk_agent_map,
 )
+from agent_dev_kit.task_facts import verdict_format_note
 
 
 MAX_REQUEST_IN_NODE_CHARS = 4000
@@ -55,6 +56,7 @@ class DevAgentKit:
     provider: AgentProvider
     agents: dict[str, AgentHandle]
     planner_agent: AgentHandle | None = None
+    node_agents: dict[str, AgentHandle] | None = None
     trace_store: OrchestrationTraceStore | None = None
     rejection_log_path: Path | None = None
     execution_note: str = ""
@@ -85,6 +87,16 @@ class DevAgentKit:
                 max_entries=config.orchestration.trace_max_entries,
             )
 
+        # DAG-node agents first, without handoffs (M-085); the conversation
+        # agents below keep theirs.
+        node_agents = create_enabled_agents(
+            provider,
+            config,
+            tool_registry=tool_registry,
+            preference_profile=preference_profile,
+            builtin_tools=builtin_tools,
+            with_handoffs=False,
+        )
         agents = create_enabled_agents(
             provider,
             config,
@@ -116,6 +128,7 @@ class DevAgentKit:
             provider=provider,
             agents=agents,
             planner_agent=planner_agent,
+            node_agents=node_agents,
             trace_store=trace_store,
             rejection_log_path=rejection_log_path,
             execution_note=execution_note,
@@ -307,6 +320,13 @@ class DevAgentKit:
         plan.trace.add_usage("planner", "triage", planning_usage)
         self._ensure_dag_budget(plan, stage="planning")
         return plan
+
+    def _node_agent(self, key: str) -> AgentHandle:
+        """DAG nodes run without handoff tools (M-085)."""
+
+        if self.node_agents is not None and key in self.node_agents:
+            return self.node_agents[key]
+        return self.agents[key]
 
     def _require_planner(self) -> AgentHandle:
         if "triage" not in self.agents or self.planner_agent is None:
@@ -587,7 +607,7 @@ class DevAgentKit:
         *,
         session: Any | None,
     ) -> None:
-        handle = self.agents[node.agent]
+        handle = self._node_agent(node.agent)
         started = perf_counter()
         attempt = self._check_node_attempt_budget(plan, node)
         prompt = self._node_prompt(plan, node)
@@ -625,7 +645,7 @@ class DevAgentKit:
         *,
         session: Any | None,
     ) -> None:
-        handle = self.agents[node.agent]
+        handle = self._node_agent(node.agent)
         started = perf_counter()
         attempt = self._check_node_attempt_budget(plan, node)
         prompt = self._node_prompt(plan, node)
@@ -815,7 +835,9 @@ class DevAgentKit:
             + language_rule
             + "Original request from the person (source of truth: every "
             "explicit requirement in it must be met exactly; the summary and "
-            "objective below only scope your part):\n"
+            "objective below only scope your part. If it points to a source "
+            "that contradicts the verified facts or the project's rule "
+            "sources, follow those and state the contradiction):\n"
             f"{request}\n\n"
             "Do not invent people, roles, processes, rules, facts or "
             "examples that are not in the request, the referenced issue or "
@@ -829,10 +851,25 @@ class DevAgentKit:
             f"Objective:\n{node.objective}\n\n"
             "Completed dependency outputs:\n"
         )
+        is_final = node.id in {item.id for item in plan.final_nodes()}
+        facts = getattr(plan, "facts", None)
+        if is_final:
+            closing = (
+                "\n\nYour answer is delivered to the person as the final "
+                "result; no later node rewrites it. Use the format they asked "
+                "for. No preamble or narration of your process, and nothing "
+                "outside the request except at most one line of collateral "
+                "findings."
+                + (f"\n{verdict_format_note(facts)}" if facts is not None else "")
+            )
+        else:
+            closing = (
+                "\n\nReturn the node result and concise evidence useful to "
+                "the following nodes and final documentation."
+            )
         suffix = (
             (f"\n\n{self.execution_note}" if self.execution_note else "")
-            + "\n\nReturn the node result and concise evidence useful to the "
-            "following nodes and final documentation."
+            + closing
         )
 
         context_limit = self.config.orchestration.budgets.max_context_chars
@@ -852,17 +889,31 @@ class DevAgentKit:
                 ),
             )
 
-        # The real plan (M-084) is useful but optional: dependency evidence
-        # keeps priority, and the plan is included only when it fits whole.
-        evidence_reserve = min(
-            self.config.orchestration.budgets.max_dependency_evidence_chars,
-            available,
+        # Optional context, by priority (M-084/M-085): dependency evidence,
+        # then the verified facts (trimmed to fit), then the real plan (whole
+        # or nothing). A node without dependencies reserves nothing for them.
+        evidence_reserve = (
+            min(
+                self.config.orchestration.budgets.max_dependency_evidence_chars,
+                available,
+            )
+            if node.depends_on
+            else 0
         )
+        room = available - evidence_reserve
+        facts_text = getattr(facts, "text", "") or ""
+        if len(facts_text) > room:
+            facts_text = (
+                self._truncate_text(facts_text, room) + "\n\n"
+                if room > 400
+                else ""
+            )
+        room -= len(facts_text)
         plan_context = self._plan_context(plan)
-        if len(plan_context) > available - evidence_reserve:
+        if len(plan_context) > room:
             plan_context = ""
-        prefix = prefix.replace(_PLAN_SLOT, plan_context)
-        available -= len(plan_context)
+        prefix = prefix.replace(_PLAN_SLOT, facts_text + plan_context)
+        available -= len(facts_text) + len(plan_context)
 
         evidence_limit = min(
             self.config.orchestration.budgets.max_dependency_evidence_chars,
@@ -893,7 +944,7 @@ class DevAgentKit:
     def _plan_context(plan: TaskPlan) -> str:
         """The real plan decided by Triage, so nodes report it as-is (M-084)."""
 
-        def short(text: str, limit: int = 240) -> str:
+        def short(text: str, limit: int = 120) -> str:
             text = " ".join(str(text or "").split())
             return text if len(text) <= limit else text[: limit - 3] + "..."
 

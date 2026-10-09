@@ -77,6 +77,7 @@ class ProjectAgentDevKitConfig:
     language: str | None = None
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     pricing: Mapping[str, ModelPrice] = field(default_factory=dict)
+    rule_sources: Mapping[str, str] = field(default_factory=dict)
 
     def agent(self, key: str) -> ContextualAgentConfig | None:
         return self.agents.get(_normalize_agent_key(key))
@@ -212,7 +213,37 @@ def load_project_config(project_root: str | Path) -> ProjectAgentDevKitConfig:
         language=language,
         workspace=workspace_config_from_mapping(project_data.get("workspace")),
         pricing=pricing_from_mapping(project_data.get("pricing")),
+        rule_sources=rule_sources_from_mapping(project_data.get("context")),
     )
+
+
+def rule_sources_from_mapping(data: Any) -> dict[str, str]:
+    """``context.rule_sources``: topic -> repo document that holds the rule (M-085).
+
+    Example::
+
+        context:
+          rule_sources:
+            git_workflow: docs/tareas_pendientes_v0_1.md#4. Regla de ramas
+    """
+
+    if data is None:
+        return {}
+    if not isinstance(data, Mapping):
+        raise ValueError("'context' must be a mapping.")
+    sources = data.get("rule_sources") or {}
+    if not isinstance(sources, Mapping):
+        raise ValueError("'context.rule_sources' must be a mapping topic -> path.")
+    result: dict[str, str] = {}
+    for topic, target in sources.items():
+        value = str(target or "").strip()
+        path = value.split("#", 1)[0].strip()
+        if not path or path.startswith("/") or ".." in Path(path).parts:
+            raise ValueError(
+                f"context.rule_sources.{topic} must be a path inside the project."
+            )
+        result[str(topic).strip()] = value
+    return result
 
 
 _LANGUAGE_PATTERN = re.compile(r"^[a-z]{2}(-[A-Za-z]{2})?$")
@@ -364,13 +395,26 @@ def apply_project_context(
         f"Project name: {config.name}",
         "Configured stack:",
         stack_yaml or "{}",
-        "Git workflow policy:",
+        (
+            "Git workflow policy enforced by Agent Dev Kit in code (declared "
+            "configuration, a subset of the project's rules; not verified "
+            "GitHub settings):"
+        ),
         git_workflow_yaml,
         (
             "Git mutations that conflict with this policy must be rejected. "
             "A protected-branch exception requires explicit human authorization."
         ),
     ]
+    if config.rule_sources:
+        context_parts.append(
+            "Project rule sources (the authoritative documents for these "
+            "topics; when a task depends on them, read them and follow them "
+            "over the summary above):"
+        )
+        context_parts.extend(
+            f"- {topic}: {target}" for topic, target in config.rule_sources.items()
+        )
 
     if (
         config.orchestration.document_templates
