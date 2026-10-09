@@ -260,8 +260,10 @@ def run_conversation(
         if command in COMMAND_MODES:
             request = request.strip()
             if not request:
-                print(f"Uso: {command} <pedido>")
-                continue
+                request = _read_multiline_request()
+                if not request:
+                    print(f"Pedido vacío para {command}.")
+                    continue
             try:
                 run_task(runtime, request, mode=COMMAND_MODES[command])
             except (GitActionError, GitPolicyViolation, TaskPlanError, ProviderError) as exc:
@@ -299,9 +301,27 @@ HELP_TEXT = """Comandos:
   /task <pedido>   plan + propuesta de cada agente (leen el repo, no lo modifican)
   /do   <pedido>   plan → tu OK → rama local desde develop → cambian archivos y
                    corren tests → diff y consumo → tu OK → commit local (sin push)
+  /plan, /task o /do sin <pedido> abren entrada multilínea; terminá con /end
   /help            esta ayuda
   /exit            salir
 Cualquier otro texto es una conversación (los agentes pueden leer el repo)."""
+
+
+def _read_multiline_request() -> str:
+    print("Pegá el pedido. Terminá con una línea que contenga solo /end.")
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("...> ")
+        except EOFError:
+            break
+        except KeyboardInterrupt:
+            print()
+            return ""
+        if line.strip() == "/end":
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def run_task(runtime: ProviderRuntime, request: str, *, mode: str = "propose") -> int:
