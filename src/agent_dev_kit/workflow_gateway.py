@@ -7,6 +7,7 @@ human-facing MCP host must confirm the decision before invoking decide().
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from time import monotonic
 from typing import Any
 from uuid import uuid4
@@ -90,6 +91,9 @@ class WorkflowController:
             # allowed_commands must not be silently approved over MCP.
             approve_command=lambda command: False,
         )
+        # Optional private-issue read credential supplied by the server owner.
+        # It remains inside Workspace; it is never included in MCP output.
+        workspace._github_token = os.environ.get("AGENT_DEV_KIT_GITHUB_READ_TOKEN") or None
         runtime = ProviderRuntime(
             registry=self.gateway.registry,
             project_config=config,
