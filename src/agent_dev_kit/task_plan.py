@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from agent_dev_kit.planner_contract import planner_payload_to_mapping
 from agent_dev_kit.orchestration_policy import (
@@ -67,6 +67,10 @@ class TaskPlan:
     execution_status: str = "planned"
     story_approved: bool = False
     facts: Any = None  # task_facts.TaskFacts, resolved in code before nodes (M-085)
+    # Optional host checkpoint hook. Not sent to model or serialized as a plan.
+    on_checkpoint: Callable[["TaskPlan"], None] | None = field(
+        default=None, repr=False, compare=False,
+    )
 
     @property
     def requires_story_approval(self) -> bool:
