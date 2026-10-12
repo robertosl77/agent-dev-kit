@@ -197,6 +197,17 @@ def extract_criteria(issue_text: str) -> list[Criterion]:
 
     criteria: list[Criterion] = []
     inside = False
+    # A criterion may say "Evita referencias ..." without repeating the
+    # document named by the issue itself. Only inherit one unambiguous target.
+    preamble = issue_text.splitlines()
+    for index, raw in enumerate(preamble):
+        if _CRITERIA_HEADING.match(raw):
+            preamble = preamble[:index]
+            break
+    named_documents = list(dict.fromkeys(_PATH.findall("\n".join(preamble))))
+    default_document = named_documents[0] if len(named_documents) == 1 else None
+    if not named_documents and re.search(r"\bREADME\b", "\n".join(preamble), re.IGNORECASE):
+        default_document = "README.md"
     for raw in issue_text.splitlines():
         if _CRITERIA_HEADING.match(raw):
             inside = True
@@ -208,7 +219,7 @@ def extract_criteria(issue_text: str) -> list[Criterion]:
         item = _ITEM.match(raw)
         if item:
             text = " ".join(item.group(1).split())
-            absence_path, absence_refs = _absence_spec(text)
+            absence_path, absence_refs = _absence_spec(text, default_document=default_document)
             criteria.append(
                 Criterion(
                     id=f"CA-{len(criteria) + 1}",
@@ -221,11 +232,13 @@ def extract_criteria(issue_text: str) -> list[Criterion]:
     return criteria
 
 
-def _absence_spec(text: str) -> tuple[str | None, tuple[str, ...]]:
-    """Only recognize narrow, explicit, negative branch-reference assertions.
+def _absence_spec(
+    text: str, *, default_document: str | None = None,
+) -> tuple[str | None, tuple[str, ...]]:
+    """Recognize negative branch-reference checks against a named document.
 
-    Do not guess the document or invent a global absence proof for arbitrary
-    natural-language criteria. Historical exceptions still need judgment.
+    The issue's target document may be inherited only when its preamble
+    unambiguously names one file. Historical exceptions still need judgment.
     """
     if not _NEGATIVE_REFERENCE.search(text):
         return None, ()
@@ -240,7 +253,7 @@ def _absence_spec(text: str) -> tuple[str | None, tuple[str, ...]]:
         return match.group(1), tokens
     if re.search(r"\bREADME\b", text, re.IGNORECASE):
         return "README.md", tokens
-    return None, ()
+    return default_document, tokens if default_document else ()
 
 
 def _absence_evidence(
