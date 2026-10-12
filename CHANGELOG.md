@@ -2,6 +2,14 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
+## En desarrollo — paridad CLI/MCP (rama `feat/mcp-cli-parity`)
+
+- refactorización de los pasos compartidos entre CLI y Gateway; nuevos workflows MCP con aprobación humana por etapa (plan/historia/commit);
+- repositorio, grafos, consumo y análisis de candidatos consultables desde MCP;
+- controles sobre diffs aprobados, sesiones de escritura y ejecución sin shell;
+- nuevas pruebas de integración, pendientes de ejecución y validación en esta rama.
+- no se considera release estable ni se modifica `main`.
+
 ## [0.3.0] — agentes con herramientas: consultor y acción
 
 Issue paraguas: M-078 (#121).
