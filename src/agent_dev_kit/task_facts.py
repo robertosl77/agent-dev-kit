@@ -142,12 +142,15 @@ def build_facts(workspace: Any, config: Any, request: str) -> TaskFacts:
     if facts.criteria:
         lines.append("- Acceptance criteria extracted from the issue:")
         for item in facts.criteria:
-            if item.rule_bound:
+            if item.rule_bound and facts.rule_files:
                 bound = (
-                    " [refers to project rules: evaluate against the rule source"
-                    + (f" ({', '.join(facts.rule_files)})" if facts.rule_files else
-                       "; context.rule_sources is NOT configured: verdict MUST be PENDIENTE")
-                    + " and cite it]"
+                    " [refers to project rules: evaluate against the rule source "
+                    f"({', '.join(facts.rule_files)}) and cite it]"
+                )
+            elif item.rule_bound:
+                bound = (
+                    " [context.rule_sources is NOT configured: verdict MUST be "
+                    "PENDIENTE; project.yaml is not an authoritative substitute]"
                 )
             else:
                 bound = ""
@@ -253,7 +256,7 @@ def _absence_spec(
         return match.group(1), tokens
     if re.search(r"\bREADME\b", text, re.IGNORECASE):
         return "README.md", tokens
-    return default_document, tokens if default_document else ()
+    return (default_document, tokens) if default_document else (None, ())
 
 
 def _absence_evidence(
