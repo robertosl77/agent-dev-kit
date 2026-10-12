@@ -69,10 +69,24 @@ Lo que se puede verificar con código no se le pide al modelo:
        [OK] CA-n | path:línea | "texto exacto"
        cita inexistente / texto que no está en esa línea / OK sin cita /
        criterio de reglas que no cita la fuente   →  [PENDIENTE] + motivo
+       criterio de reglas sin context.rule_sources → [PENDIENTE] + motivo
+       referencias históricas cuyo texto no aparece:
+         [OK] CA-n | README.md | ausencia comprobada de <ramas concretas>
+         (verifica el archivo completo; no exige citar una línea inexistente)
        criterio no evaluado                       →  se agrega [PENDIENTE]
 ```
 
-- El control solo baja de `OK` a `PENDIENTE`; nunca sube.
+- El control solo baja de `OK` a `PENDIENTE`; nunca sube. Los hechos negativos
+  deben identificar las referencias concretas y el archivo evaluado; si alguna
+  referencia sigue presente, la ausencia no se acepta. No se infiere cumplimiento
+  general de otras referencias históricas no enumeradas.
+- Si un criterio depende de las reglas documentadas del proyecto, pero
+  `context.rule_sources` no identifica una fuente autoritativa, **se marca
+  PENDIENTE**, aunque el agente cite `project.yaml`. Una regla declarada en
+  configuración no sustituye el documento solicitado.
+- Si el modelo afirma que todo está cumplido pero el verificador corrige un
+  criterio, el resultado final agrega un veredicto global **PENDIENTE** que
+  impide interpretar esa conclusión como autorización de cierre.
 - El plan real de Triage llega al nodo para informarlo tal cual (se omite si no
   cabe en el presupuesto). Los hechos tienen prioridad sobre el plan; un nodo sin
   dependencias no reserva espacio para evidencia que no tiene.
