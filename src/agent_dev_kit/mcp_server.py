@@ -159,6 +159,17 @@ def build_mcp_server(
         return gateway.workflow.fallback(workflow_id, approve)
 
     @server.tool()
+    def agent_dev_kit_workflow_resume(
+        workflow_id: str, approve: bool,
+    ) -> dict[str, Any]:
+        """Explicitly retry a safe interrupted phase after a process restart.
+
+        No write-capable agent is ever replayed if action execution was
+        interrupted; such a workflow requires manual worktree review.
+        """
+        return gateway.workflow.resume(workflow_id, approve)
+
+    @server.tool()
     def agent_dev_kit_workflow_cancel(workflow_id: str) -> dict[str, Any]:
         """Cancel a workflow; never silently discard local code changes."""
         return gateway.workflow.cancel(workflow_id)
