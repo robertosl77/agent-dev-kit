@@ -2,12 +2,19 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
-## En desarrollo — paridad CLI/MCP (rama `feat/mcp-cli-parity`)
+## En desarrollo — conexión MCP privada y actualizaciones controladas (`feat/mcp-remote-version-sync`)
+
+- documentación de Secure MCP Tunnel para acceso privado desde ChatGPT sin puerto público;
+- comando `agent-dev-kit update --tag ...` que resuelve tags estables a SHA y consulta sin cambios;
+- `--apply --yes` para instalación explícita y fijada a commit, con protección de instalación editable y rollback deliberado;
+- pruebas de contrato de resolución de tags, rechazo de ramas y confirmación.
+
+## Integrado en develop — paridad CLI/MCP (PR #130)
 
 - refactorización de los pasos compartidos entre CLI y Gateway; nuevos workflows MCP con aprobación humana por etapa (plan/historia/commit);
 - repositorio, grafos, consumo y análisis de candidatos consultables desde MCP;
 - controles sobre diffs aprobados, sesiones de escritura y ejecución sin shell;
-- nuevas pruebas de integración, pendientes de ejecución y validación en esta rama.
+- pruebas de integración ejecutadas en Windows (258 passed, 1 skipped); falta smoke MCP real.
 - checkpoints por nodo y aprobación fuera del repositorio consumidor; restauración explícita sin repetir operaciones de escritura interrumpidas.
 - solicitudes individuales de comandos restringidos, diferidas y autorizadas una sola vez antes del commit; la reanudación dentro del turno del modelo continúa pendiente.
 - no se considera release estable ni se modifica `main`.
