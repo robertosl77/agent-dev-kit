@@ -7,7 +7,6 @@ human-facing MCP host must confirm the decision before invoking decide().
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from time import monotonic
 from typing import Any
 from uuid import uuid4
@@ -15,7 +14,7 @@ from uuid import uuid4
 from agent_dev_kit.execution import ProviderRuntime
 from agent_dev_kit.git_actions import current_branch, is_git_repository
 from agent_dev_kit.orchestration import OrchestrationTraceStore, resolve_project_trace_path
-from agent_dev_kit.graph_analysis import graph_rows, intake_candidates, analysis_report
+from agent_dev_kit.graph_analysis import graph_rows, analysis_report
 from agent_dev_kit.provider_errors import ProviderError, ProviderRecoverableError
 from agent_dev_kit.task_plan import TaskPlan
 from agent_dev_kit.task_workflow import (
@@ -201,6 +200,23 @@ class WorkflowController:
         state.status, state.phase = "canceled", "canceled"
         # Local changes are NEVER silently reset or discarded.
         return self._snapshot(workflow_id, state)
+
+    def usage(self, workflow_id: str) -> dict[str, Any]:
+        """Report provider/model call usage without exposing provider secrets."""
+        from agent_dev_kit.usage import total_tokens, estimate_cost
+
+        state = self._state(workflow_id)
+        records = (
+            list(state.plan.trace.usage)
+            if state.plan is not None and state.plan.trace is not None
+            else []
+        )
+        return {
+            "workflow_id": workflow_id,
+            "by_call": records,
+            "totals": total_tokens(records),
+            "estimated_usd": estimate_cost(records, self.gateway.config.pricing),
+        }
 
     def repository_status(self) -> dict[str, Any]:
         from agent_dev_kit.git_actions import diff_stat, uncommitted_changes
