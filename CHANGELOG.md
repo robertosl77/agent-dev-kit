@@ -6,6 +6,15 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
 Issue paraguas: M-078 (#121).
 
+### Agente Scrum Master (incorporación en rama de trabajo; validación pendiente)
+
+- nuevo agente `scrum_master` (Scrum Master con tareas operativas de Product Owner), habilitable por proyecto sin afectar instalaciones que no lo incluyan;
+- solicitudes de cambio funcional producen historias de usuario breves y criterios de aceptación verificables para aprobación del usuario, incluso en cambios pequeños;
+- DAG con nodo inicial Scrum Master y dependencia obligatoria de los demás nodos; `/task` y `/do` exigen conformidad humana antes de continuar; en `/do` se revisa en modo solo lectura antes de crear una rama;
+- Scrum incremental proporcional: backlog, Sprint Goal, Sprint Backlog, Increment y Definition of Done solamente cuando corresponda;
+- GitHub Issues: propuestas sin escrituras automáticas ni atribuir aprobaciones inexistentes;
+- pruebas agregadas para enrutamiento, compatibilidad, dependencias y barrera humana. **Pendiente de ejecución y validación integral antes del merge a `develop`**.
+
 ### Herramientas y modos (M-076, #119)
 
 - herramientas incluidas para los agentes: `list_files`, `read_file`, `search`,
