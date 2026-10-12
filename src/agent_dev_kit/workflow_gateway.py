@@ -94,11 +94,6 @@ class WorkflowController:
         self.cleanup()
         # Exactly one active action workflow may own this worktree.
         if mode == "act":
-            if self._store.has_active_action(self.gateway.config.gateway.session_ttl_seconds):
-                return {
-                    "status": "blocked",
-                    "reason": "An unfinished action checkpoint already owns this project.",
-                }
             for ident, existing in self._sessions.items():
                 if existing.mode == "act" and existing.status not in FINISHED:
                     return {
@@ -106,6 +101,11 @@ class WorkflowController:
                         "reason": "Another action workflow owns the repository worktree.",
                         "workflow_id": ident,
                     }
+            if self._store.has_active_action(self.gateway.config.gateway.session_ttl_seconds):
+                return {
+                    "status": "blocked",
+                    "reason": "An unfinished action checkpoint already owns this project.",
+                }
         config = self.gateway.config
         maximum = config.gateway.max_sessions
         if len(self._sessions) + len(self.gateway._conversations) + len(self.gateway._tasks) >= maximum:
