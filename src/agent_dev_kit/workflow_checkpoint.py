@@ -155,6 +155,29 @@ class WorkflowCheckpointStore:
             return None
         return data
 
+    def has_active_action(self, ttl: float) -> bool:
+        """Detect unfinished action approvals left by a previous process.
+
+        This is a recovery guard, not a multi-process distributed lock.
+        Only one MCP server should own a consuming repository at a time.
+        """
+        if not self.directory.is_dir():
+            return False
+        for path in self.directory.glob("workflow_*.json"):
+            if path.is_symlink():
+                continue
+            try:
+                data = self.load(path.stem, ttl)
+            except (ValueError, OSError, json.JSONDecodeError):
+                # Corrupted state must fail closed: refuse new action sessions.
+                return True
+            if data and data.get("mode") == "act" and data.get("status") not in {
+                "completed", "rejected", "canceled", "failed", "blocked",
+                "manual_review_required",
+            }:
+                return True
+        return False
+
     def delete(self, ident: str) -> None:
         path = self._path(ident)
         if path.exists() and not path.is_symlink():
