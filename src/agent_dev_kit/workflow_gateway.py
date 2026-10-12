@@ -164,7 +164,10 @@ class WorkflowController:
         if pending is not None and state.status == "approval_required":
             # Old approval IDs are invalid across process boundaries.
             state.pending_decision = {**pending, "id": uuid4().hex}
-        if state.status in {"planning", "executing_intake", "executing", "fallback_required"}:
+        if state.status in {
+            "planning", "executing_intake", "executing",
+            "fallback_required", "executing_command", "committing", "branch_creation",
+        }:
             state.status = "interrupted"
             state.failure = (
                 "Execution was interrupted. No model call or write will be "
@@ -183,7 +186,9 @@ class WorkflowController:
             raise ValueError("MCP action mode is disabled by the server owner.")
         if not approve:
             return self.cancel(workflow_id)
-        if state.mode == "act" and state.phase == "execute":
+        if state.mode == "act" and state.phase in {
+            "execute", "command_execution", "commit_execution", "branch_creation",
+        }:
             state.status, state.phase = "manual_review_required", "manual_review_required"
             state.failure = (
                 "Action run was interrupted after branch creation; inspect the "
@@ -253,6 +258,8 @@ class WorkflowController:
                 state.failure = "Git branch changed before restricted command approval."
                 return self._snapshot(workflow_id, state)
             try:
+                state.phase, state.status = "command_execution", "executing_command"
+                self._persist(workflow_id, state)
                 result = state.workspace.execute_pending_command(entry)
             except Exception as exc:
                 state.status, state.phase = "blocked", "blocked"
@@ -290,6 +297,8 @@ class WorkflowController:
                     state.status, state.phase = "blocked", "blocked"
                     state.failure = "Diff too large for safe MCP approval; review and commit locally."
                     return self._snapshot(workflow_id, state)
+                state.phase, state.status = "commit_execution", "committing"
+                self._persist(workflow_id, state)
                 commit_action_branch(
                     state.workspace, self.gateway.config, state.request,
                     branch=state.branch, issue=state.issue,
@@ -477,9 +486,13 @@ class WorkflowController:
                     if check.status != "ok":
                         state.status, state.phase, state.failure = "blocked", "blocked", check.reason
                         return self._snapshot(ident, state)
+                    state.status, state.phase = "branch_creation", "branch_creation"
+                    self._persist(ident, state)
                     state.branch = create_action_branch(
                         state.workspace, config, state.request, issue=state.issue,
                     )
+                    state.phase = "execute"
+                    self._persist(ident, state)
                     state.runtime = state.runtime.with_mode("act")
                     if state.plan.trace is not None:
                         state.plan.trace.mode = "act"
