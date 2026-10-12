@@ -4,8 +4,8 @@ Desde `v0.3.0` los agentes tienen **herramientas** (M-076): pueden leer el proye
 
 ```text
 /plan <pedido>   solo el plan: qué agentes, en qué orden y con qué modelo. No ejecuta nada.
-/task <pedido>   plan + propuesta de cada agente. Leen el repo; no lo modifican.
-/do   <pedido>   plan → tu OK → rama local desde develop → cambian archivos y corren tests
+/task <pedido>   plan + revisión de historia (si aplica) + propuestas. Solo lectura.
+/do   <pedido>   plan → tu OK → aprobación de HU (si aplica) → rama local desde develop → cambios/tests
                  → diff y consumo → tu OK → commit local. Nunca hace push.
 /help            ayuda
 /exit            salir
@@ -43,7 +43,7 @@ Reglas que aplica el framework, no el modelo:
 
 ### Quién puede escribir en `/do`
 
-Por defecto escriben: backend, frontend, database, testing, documentation, devops, ux_ui, data, performance, observability y security. Solo leen: product, pmo, architecture, reviewer y triage.
+Por defecto escriben: backend, frontend, database, testing, documentation, devops, ux_ui, data, performance, observability y security. Solo leen: product, pmo, scrum_master, architecture, reviewer y triage.
 
 Se cambia por agente en `.agent-dev-kit/agents/<agente>.yaml`:
 
@@ -158,3 +158,9 @@ Los registros de `runtime/` nunca entran en el commit de `/do`.
 ## MCP y API Python
 
 En modo MCP no hay herramientas incluidas: el host (por ejemplo Copilot) usa las suyas. Desde Python se activan pasando `workspace` y `mode` a `ProviderRuntime`.
+
+## Validación previa de historias (Scrum Master)
+
+Cuando `scrum_master` está habilitado y el pedido implica una capacidad funcional nueva o modificada, el plan lo sitúa primero. La historia y sus criterios aparecen en `/task` y `/do` para confirmar. Si el usuario rechaza, no se ejecutan los demás nodos. En `/do` la revisión ocurre **antes de crear una rama** y con herramientas **solo lectura**. En la API debe completarse el intake mediante `intake_only=True` y confirmarse explícitamente `story_approved=True`. No se imponen sprints a cambios pequeños.
+
+GitHub: se pueden proponer issues, pero `read_issue` es de solo lectura; las escrituras requieren herramientas y autorización expresa.
