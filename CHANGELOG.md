@@ -8,6 +8,8 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - repositorio, grafos, consumo y análisis de candidatos consultables desde MCP;
 - controles sobre diffs aprobados, sesiones de escritura y ejecución sin shell;
 - nuevas pruebas de integración, pendientes de ejecución y validación en esta rama.
+- checkpoints por nodo y aprobación fuera del repositorio consumidor; restauración explícita sin repetir operaciones de escritura interrumpidas.
+- solicitudes individuales de comandos restringidos, diferidas y autorizadas una sola vez antes del commit; la reanudación dentro del turno del modelo continúa pendiente.
 - no se considera release estable ni se modifica `main`.
 
 ## [0.3.0] — agentes con herramientas: consultor y acción
