@@ -112,6 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="HTTP port for streamable-http (default: 8000).",
     )
 
+    mcp.add_argument(
+        "--allow-actions", action="store_true",
+        help="Enable gated MCP /do on this trusted server (off by default).",
+    )
+
     return parser
 
 
@@ -142,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
                 transport=args.transport,
                 host=args.host,
                 port=args.port,
+                allow_actions=args.allow_actions,
             )
             return 0
 
