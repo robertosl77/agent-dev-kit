@@ -179,6 +179,8 @@ class WorkflowController:
         state = self._state(workflow_id)
         if state.status != "interrupted" or type(approve) is not bool:
             raise ValueError("No interrupted workflow awaiting recovery.")
+        if state.mode == "act" and not self.allow_actions:
+            raise ValueError("MCP action mode is disabled by the server owner.")
         if not approve:
             return self.cancel(workflow_id)
         if state.mode == "act" and state.phase == "execute":
@@ -190,8 +192,14 @@ class WorkflowController:
             return self._snapshot(workflow_id, state)
         if state.phase == "planning":
             state.plan = None
+        if state.plan is not None:
+            # Non-completed model calls have no durable transcript; never
+            # pretend that a running node completed.
+            for node in state.plan.nodes:
+                if node.status == "running":
+                    node.status = "pending"
         if state.phase == "intake" and state.plan is not None:
-            if state.plan.requires_story_approval and any(
+            if state.plan.requires_story_approval and all(
                 node.status == "completed" for node in state.plan.nodes
                 if node.agent == "scrum_master"
             ):
@@ -206,7 +214,7 @@ class WorkflowController:
                     details=story,
                 )
         if state.phase not in {"planning", "intake", "execute"}:
-            state.phase = "planning" if state.plan is None else "execute"
+            state.phase = "planning" if state.plan is None else "intake"
         # No automatic repetition: an explicit human approval starts the retry.
         return self._drive(workflow_id, state)
 
