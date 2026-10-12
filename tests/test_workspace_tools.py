@@ -167,3 +167,23 @@ def test_propose_mode_note_includes_verification_rules():
         assert "Never substitute a different source" in note
         assert "git_branches" in note
         assert "declared configuration or policy" in note
+
+
+def test_deferred_command_requires_one_exact_approval(repo):
+    ws = Workspace(
+        repo,
+        WorkspaceConfig(allowed_commands=("git status",)),
+        defer_commands=True,
+    )
+    with pytest.raises(WorkspaceError, match="requires explicit human approval"):
+        ws.run_command({"command": "git status --short"})
+    assert ws.pending_commands == [{"command": "git status --short", "cwd": "."}]
+    approved = ws.execute_pending_command(dict(ws.pending_commands[0]))
+    assert approved.startswith("exit code 0")
+    assert ws.pending_commands == []
+    with pytest.raises(WorkspaceError, match="requires explicit human approval"):
+        ws.run_command({"command": "git status --short"})
+    assert ws.pending_commands
+    with pytest.raises(WorkspaceError, match="missing or no longer first"):
+        ws.execute_pending_command({"command": "git status --porcelain", "cwd": "."})
+    assert not ws._approved_once
