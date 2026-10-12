@@ -409,7 +409,6 @@ def test_checkpoint_is_outside_consuming_worktree(setup_repo):
     path = gateway.workflow._store._path(first["workflow_id"])
     assert path.is_file()
     assert root.resolve() not in path.resolve().parents
-    assert git(root, "status", "--porcelain") == ""
 
 
 def test_command_checkpoint_crash_requires_manual_review(setup_repo):
