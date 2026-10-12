@@ -426,3 +426,54 @@ def test_command_checkpoint_crash_requires_manual_review(setup_repo):
     result = restored.workflow.resume(first["workflow_id"], True)
     assert result["status"] == "manual_review_required"
     assert git(root, "branch", "--show-current") == "develop"
+
+
+def test_interrupted_read_only_dag_resumes_at_last_completed_node(setup_repo):
+    gateway, provider, root = setup_repo
+    first = gateway.workflow.start(REQUEST, mode="propose")
+    assert first["approval"]["kind"] == "story"
+    original = provider.run_sync
+
+    def fail_once(agent, message, *, session=None):
+        if agent.name == "Agent Frontend":
+            raise SystemExit("simulate MCP process termination")
+        return original(agent, message, session=session)
+
+    provider.run_sync = fail_once
+    with pytest.raises(SystemExit, match="simulate MCP"):
+        gateway.workflow.decide(first["workflow_id"], first["approval"]["id"], True)
+    provider.run_sync = original
+
+    restarted = AgentDevKitGateway(root, registry=gateway.registry)
+    loaded = restarted.workflow.status(first["workflow_id"])
+    assert loaded["status"] == "interrupted"
+    assert loaded["plan"]["nodes"][0]["status"] == "completed"
+    recovered = restarted.workflow.resume(first["workflow_id"], True)
+    assert recovered["status"] == "completed"
+    assert provider.ran.count("Agent Scrum Master") == 1
+    assert provider.ran.count("Agent Triage Planner") == 1
+
+
+def test_interrupted_commit_is_not_replayed(setup_repo):
+    gateway, _, root = setup_repo
+    gateway.workflow.allow_actions = True
+    response = gateway.workflow.start(REQUEST, mode="act")
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    assert response["approval"]["kind"] == "commit"
+    state = gateway.workflow._sessions[response["workflow_id"]]
+    state.pending_decision = None
+    state.status, state.phase = "committing", "commit_execution"
+    gateway.workflow.status(response["workflow_id"])
+
+    restarted = AgentDevKitGateway(root, registry=gateway.registry)
+    restarted.workflow.allow_actions = True
+    state = restarted.workflow.status(response["workflow_id"])
+    assert state["status"] == "interrupted"
+    result = restarted.workflow.resume(response["workflow_id"], True)
+    assert result["status"] == "manual_review_required"
+    assert git(root, "log", "-1", "--format=%s") == "initial"
