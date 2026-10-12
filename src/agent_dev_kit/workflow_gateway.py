@@ -6,9 +6,10 @@ human-facing MCP host must confirm the decision before invoking decide().
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from functools import wraps
+from threading import RLock
 import os
-from secrets import token_hex
 from time import monotonic
 from typing import Any
 from uuid import uuid4
@@ -34,7 +35,21 @@ from agent_dev_kit.workflow_checkpoint import (
 
 
 STAGES = frozenset({"plan", "propose", "act"})
-FINISHED = frozenset({"completed", "rejected", "canceled", "failed", "blocked"})
+FINISHED = frozenset({
+    "completed", "rejected", "canceled", "failed", "blocked",
+    "manual_review_required",
+})
+
+
+def serialized(method):
+    """Serialize each approval and its side effects in one server process."""
+
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return guarded
 
 
 @dataclass(slots=True)
@@ -64,8 +79,10 @@ class WorkflowController:
         self.allow_actions = allow_actions
         self._clock = clock or monotonic
         self._sessions: dict[str, WorkflowState] = {}
+        self._lock = RLock()
         self._store = WorkflowCheckpointStore(gateway.project_root)
 
+    @serialized
     def start(self, request: str, mode: str = "propose", issue: str | None = None) -> dict[str, Any]:
         mode = str(mode).strip().lower()
         if mode not in STAGES:
@@ -77,6 +94,11 @@ class WorkflowController:
         self.cleanup()
         # Exactly one active action workflow may own this worktree.
         if mode == "act":
+            if self._store.has_active_action(self.gateway.config.gateway.session_ttl_seconds):
+                return {
+                    "status": "blocked",
+                    "reason": "An unfinished action checkpoint already owns this project.",
+                }
             for ident, existing in self._sessions.items():
                 if existing.mode == "act" and existing.status not in FINISHED:
                     return {
@@ -177,6 +199,7 @@ class WorkflowController:
         self._persist(ident, state)
         return state
 
+    @serialized
     def resume(self, workflow_id: str, approve: bool) -> dict[str, Any]:
         """Explicit retry of safe phases, never of interrupted action writes."""
         state = self._state(workflow_id)
@@ -223,9 +246,11 @@ class WorkflowController:
         # No automatic repetition: an explicit human approval starts the retry.
         return self._drive(workflow_id, state)
 
+    @serialized
     def status(self, workflow_id: str) -> dict[str, Any]:
         return self._snapshot(workflow_id, self._state(workflow_id))
 
+    @serialized
     def decide(self, workflow_id: str, decision_id: str, approve: bool) -> dict[str, Any]:
         state = self._state(workflow_id)
         if state.mode == "act" and not self.allow_actions:
@@ -314,6 +339,7 @@ class WorkflowController:
             raise ValueError("Unsupported workflow decision.")
         return self._drive(workflow_id, state)
 
+    @serialized
     def provide_issue(self, workflow_id: str, issue: str) -> dict[str, Any]:
         state = self._state(workflow_id)
         if state.mode == "act" and not self.allow_actions:
@@ -324,6 +350,7 @@ class WorkflowController:
         state.phase = "new"
         return self._drive(workflow_id, state)
 
+    @serialized
     def fallback(self, workflow_id: str, approve: bool) -> dict[str, Any]:
         state = self._state(workflow_id)
         if state.mode == "act" and not self.allow_actions:
@@ -343,6 +370,7 @@ class WorkflowController:
         )
         return self._drive(workflow_id, state)
 
+    @serialized
     def cancel(self, workflow_id: str) -> dict[str, Any]:
         state = self._state(workflow_id)
         if state.status in FINISHED:
@@ -353,6 +381,7 @@ class WorkflowController:
         # Local changes are NEVER silently reset or discarded.
         return self._snapshot(workflow_id, state)
 
+    @serialized
     def usage(self, workflow_id: str) -> dict[str, Any]:
         """Report provider/model call usage without exposing provider secrets."""
         from agent_dev_kit.usage import total_tokens, estimate_cost
