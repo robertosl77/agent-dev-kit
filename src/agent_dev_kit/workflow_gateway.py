@@ -256,12 +256,16 @@ class WorkflowController:
         try:
             return self._run_stages(ident, state)
         except ProviderRecoverableError as exc:
-            state.pending_error = exc
-            state.status = "fallback_required"
-            return self._snapshot(ident, state, fallback={
-                "current_provider": state.runtime.current_target.provider,
-                "message": str(exc),
-            })
+            response = self.gateway._fallback_response(
+                exc, state.runtime, workflow_id=ident, stage=state.phase,
+            )
+            if response["status"] == "fallback_required":
+                state.pending_error = exc
+                state.status = "fallback_required"
+            else:
+                state.status, state.phase = "failed", "failed"
+                state.failure = response["message"]
+            return self._snapshot(ident, state, fallback=response)
         except Exception as exc:
             state.status, state.phase, state.failure = "failed", "failed", str(exc)
             return self._snapshot(ident, state)
@@ -332,6 +336,8 @@ class WorkflowController:
                         state.workspace, config, state.request, issue=state.issue,
                     )
                     state.runtime = state.runtime.with_mode("act")
+                    if state.plan.trace is not None:
+                        state.plan.trace.mode = "act"
                 state.status = "executing"
                 state.workspace.bind_trace(state.plan.trace)
                 state.plan.facts = prepare_task_facts(state.workspace, config, state.request)
