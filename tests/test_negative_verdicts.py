@@ -10,7 +10,7 @@ from agent_dev_kit.task_facts import (
 from agent_dev_kit.workspace_tools import Workspace
 
 
-ISSUE = """#117 T-066
+ISSUE = """#117 T-066 — actualizar `README.md`
 
 ## Criterios de aceptación
 
