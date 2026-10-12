@@ -19,7 +19,14 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, TextIO
 
 from agent_dev_kit.execution import ProviderRuntime
-from agent_dev_kit.task_facts import build_facts, verify_verdict
+from agent_dev_kit.task_workflow import (
+    action_preflight,
+    action_review,
+    commit_action_branch,
+    create_action_branch,
+    prepare_task_facts,
+    verify_task_outputs,
+)
 from agent_dev_kit.git_actions import (
     GitActionError,
     branch_kind,
@@ -111,23 +118,11 @@ def run_plan_only(
 
 
 def _facts(workspace: Any, config: Any, request: str) -> Any:
-    """Resolve verifiable facts in code once per task (M-085); never fatal."""
-
-    try:
-        return build_facts(workspace, config, request)
-    except Exception:  # facts are an aid; the agent can still use its tools
-        return None
+    return prepare_task_facts(workspace, config, request)
 
 
 def _verify_outputs(plan: TaskPlan, workspace: Any) -> None:
-    """Check the final nodes' verdicts against the cited files (M-085)."""
-
-    facts = plan.facts
-    if facts is None or workspace is None:
-        return
-    for node in plan.final_nodes():
-        if node.output:
-            node.output, _ = verify_verdict(str(node.output), facts, workspace)
+    verify_task_outputs(plan, workspace)
 
 
 def _accept_current_branch(runtime: ProviderRuntime, io: ConsoleIO) -> bool:
@@ -228,17 +223,12 @@ def run_act(
             io.say("Sin issue no se puede crear la rama (lo exige la política del proyecto).")
             return ActOutcome(status="missing_issue")
 
-    # Check the base branch before spending tokens on planning.
+    # Preflight belongs to the shared workflow, not the client adapter.
+    check = action_preflight(workspace, config, request, issue=issue)
+    if check.status != "ok":
+        io.say(check.reason)
+        return ActOutcome(status=check.status)
     workflow = config.git_workflow
-    gateway = local_gateway(root, workflow)
-    verifier = gateway._verifier
-    base = workflow.task_branch_base
-    if not verifier.branch_exists(base):
-        io.say(f"No existe la rama '{base}' en el repo local. No se gastó nada.")
-        return ActOutcome(status="base_missing")
-    if workflow.require_updated_base_before_task and not verifier.is_up_to_date(base):
-        io.say(f"No se puede empezar: {verifier.reason}. No se gastó nada.")
-        return ActOutcome(status="base_outdated")
 
     # OK 1 — approve the plan before any agent works (the cheap point to stop).
     workspace.events.clear()
@@ -270,21 +260,11 @@ def run_act(
         plan.story_approved = True
 
     # Local task branch from the integration branch, validated by the policy.
-    branch = gateway.guard.task_branch_name(
-        kind=branch_kind(request),
-        issue=(issue or "tarea").lower(),
-        slug=branch_slug(request, issue),
-    )
     started_on = current_branch(root)
     try:
-        gateway.create_task_branch(
-            branch,
-            base_branch=workflow.task_branch_base,
-            issue_reference=issue,
-        )
+        branch = create_action_branch(workspace, config, request, issue=issue)
     except GitPolicyViolation as exc:
-        reason = getattr(verifier, "reason", "")
-        io.say(f"No se creó la rama: {exc}" + (f" ({reason})" if reason else ""))
+        io.say(f"No se creó la rama: {exc}")
         act_runtime.kit.record_plan_only(plan)
         return ActOutcome(status="branch_rejected", plan=plan)
     io.say(f"Rama local creada: {branch} (desde {workflow.task_branch_base})")
@@ -300,15 +280,14 @@ def run_act(
     for node in result.nodes:
         io.say(f"[{node.status}] {node.id} ({node.agent})\n{node.output or ''}")
 
-    changes = uncommitted_changes(root)
-    commands = [
-        event for event in workspace.events if event.get("tool") == "run_command"
-    ]
+    review = action_review(workspace, result, branch)
+    changes = review["changed_files"]
+    commands = review["commands"]
     io.say("")
     io.say(f"Rama: {branch}")
     if changes:
         io.say("Cambios:")
-        io.say(diff_stat(root) or "\n".join(changes))
+        io.say(review["diff_stat"] or "\n".join(changes))
     else:
         io.say("Los agentes no cambiaron archivos.")
     for event in commands:
@@ -334,12 +313,10 @@ def run_act(
         )
         return ActOutcome(status="not_committed", branch=branch, plan=result)
 
-    title = " ".join(request.replace(issue or "\0", " ").split())[:60] if issue else " ".join(request.split())[:60]
-    message = f"{issue}: {title}" if issue else title
-    message += (
-        f"\n\nGenerado con agent-dev-kit /do "
-        f"({act_runtime.current_target.provider} · {config.provider.default_model or 'default'})."
+    commit_action_branch(
+        workspace, config, request, branch=branch, issue=issue,
+        provider=act_runtime.current_target.provider,
+        model=config.provider.default_model,
     )
-    gateway.direct_write(branch, payload={"message": message})
     io.say(f"Commit local hecho en {branch}. No se hizo push: subila cuando lo decidas.")
     return ActOutcome(status="committed", branch=branch, committed=True, plan=result)

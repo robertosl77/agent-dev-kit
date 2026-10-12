@@ -797,6 +797,8 @@ class DevAgentKit:
             plan.trace.node_durations_ms[node.id] = (
                 perf_counter() - started
             ) * 1000
+        if plan.on_checkpoint is not None:
+            plan.on_checkpoint(plan)
 
     def _reuse_completed_node(
         self,
@@ -823,6 +825,8 @@ class DevAgentKit:
                     plan.calls_avoided_by_reuse
                 )
                 plan.trace.node_durations_ms[node.id] = 0.0
+            if plan.on_checkpoint is not None:
+                plan.on_checkpoint(plan)
             return True
         return False
 

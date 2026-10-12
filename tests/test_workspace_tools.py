@@ -82,6 +82,21 @@ def test_commands_test_run_alone_allowed_ask_and_others_are_refused(repo):
         ws.run_command({"command": "rm -rf ."})
 
 
+def test_allowed_command_is_never_interpreted_by_shell(repo):
+    ws = Workspace(repo, WorkspaceConfig(test_commands=("git status",)))
+    assert ws.run_command({"command": "git status --short"}).startswith("exit code 0")
+    for command in (
+        "git status ; echo INJECTED",
+        "git status && echo INJECTED",
+        "git status | cat",
+        "git status > output.txt",
+        "git status `echo INJECTED`",
+    ):
+        with pytest.raises(WorkspaceError, match="not allowed"):
+            ws.run_command({"command": command})
+    assert not (repo / "output.txt").exists()
+
+
 def test_tool_catalog_by_access(repo):
     ws = Workspace(repo)
     read_names = {tool.name for tool in ws.tools(READ)}
@@ -152,3 +167,23 @@ def test_propose_mode_note_includes_verification_rules():
         assert "Never substitute a different source" in note
         assert "git_branches" in note
         assert "declared configuration or policy" in note
+
+
+def test_deferred_command_requires_one_exact_approval(repo):
+    ws = Workspace(
+        repo,
+        WorkspaceConfig(allowed_commands=("git status",)),
+        defer_commands=True,
+    )
+    with pytest.raises(WorkspaceError, match="requires explicit human approval"):
+        ws.run_command({"command": "git status --short"})
+    assert ws.pending_commands == [{"command": "git status --short", "cwd": "."}]
+    approved = ws.execute_pending_command(dict(ws.pending_commands[0]))
+    assert approved.startswith("exit code 0")
+    assert ws.pending_commands == []
+    with pytest.raises(WorkspaceError, match="requires explicit human approval"):
+        ws.run_command({"command": "git status --short"})
+    assert ws.pending_commands
+    with pytest.raises(WorkspaceError, match="missing or no longer first"):
+        ws.execute_pending_command({"command": "git status --porcelain", "cwd": "."})
+    assert not ws._approved_once

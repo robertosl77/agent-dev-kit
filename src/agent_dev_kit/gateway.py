@@ -103,6 +103,8 @@ class AgentDevKitGateway:
         self._clock = clock or monotonic
         self._conversations: dict[str, ConversationGatewayState] = {}
         self._tasks: dict[str, TaskGatewayState] = {}
+        from agent_dev_kit.workflow_gateway import WorkflowController
+        self.workflow = WorkflowController(self, clock=self._clock)
 
     def status(self) -> dict[str, Any]:
         """Return safe project/runtime metadata without provider secrets."""
@@ -124,6 +126,13 @@ class AgentDevKitGateway:
             },
             "conversation_sessions": len(self._conversations),
             "task_sessions": len(self._tasks),
+            "workflow_sessions": len(self.workflow._sessions),
+            "mcp_workflows": {
+                "modes": ["plan", "propose", "act"],
+                "actions_enabled": self.workflow.allow_actions,
+                "approval_scoped_per_stage": True,
+                "recovery_after_restart": False,
+            },
             "session_ttl_seconds": self.config.gateway.session_ttl_seconds,
             "max_sessions": self.config.gateway.max_sessions,
             "tools": (
@@ -651,6 +660,7 @@ class AgentDevKitGateway:
             del self._conversations[key]
         for key in expired_tasks:
             del self._tasks[key]
+        self.workflow.cleanup()
 
         return {
             "conversations": len(expired_conversations),
@@ -659,7 +669,10 @@ class AgentDevKitGateway:
 
     def _ensure_session_capacity(self) -> None:
         self.cleanup_sessions()
-        current = len(self._conversations) + len(self._tasks)
+        current = (
+            len(self._conversations) + len(self._tasks)
+            + len(self.workflow._sessions)
+        )
         limit = self.config.gateway.max_sessions
         if current >= limit:
             raise RuntimeError(

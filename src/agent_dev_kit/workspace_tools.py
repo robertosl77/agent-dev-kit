@@ -25,6 +25,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import urllib.error
 import urllib.request
@@ -90,6 +91,10 @@ class Workspace:
     root: Path
     config: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     approve_command: ApproveFn | None = None
+    # MCP action tools cannot block on an input(); enqueue individual requests.
+    defer_commands: bool = False
+    pending_commands: list[dict[str, str]] = field(default_factory=list)
+    _approved_once: tuple[str, str] | None = field(default=None, repr=False)
     ask_github_token: SecretFn | None = None
     github_api: str = "https://api.github.com"
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -390,14 +395,31 @@ class Workspace:
                 + (", ".join(allowed) if allowed else "none (declare them in workspace.test_commands)")
             )
         if kind == "ask":
-            approved = bool(self.approve_command and self.approve_command(command))
-            if not approved:
-                self._event("run_command", False, command=command, reason="rejected")
-                raise WorkspaceError(f"The person did not approve running: {command}")
+            location = self.rel(cwd)
+            if self.defer_commands:
+                permitted = self._approved_once == (command, location)
+                # Consume before execution, even if execution fails.
+                self._approved_once = None
+                if not permitted:
+                    item = {"command": command, "cwd": location}
+                    if item not in self.pending_commands:
+                        if len(self.pending_commands) >= 16:
+                            raise WorkspaceError("Too many pending command approvals.")
+                        self.pending_commands.append(item)
+                    self._event("run_command", False, command=command, reason="approval_required")
+                    raise WorkspaceError(
+                        f"Command requires explicit human approval: {command}. "
+                        "It was not executed."
+                    )
+            else:
+                approved = bool(self.approve_command and self.approve_command(command))
+                if not approved:
+                    self._event("run_command", False, command=command, reason="rejected")
+                    raise WorkspaceError(f"The person did not approve running: {command}")
         try:
             completed = subprocess.run(
-                command,
-                shell=True,
+                _command_argv(command),
+                shell=False,
                 cwd=cwd,
                 capture_output=True,
                 text=True,
@@ -415,6 +437,24 @@ class Workspace:
         )
         tail = output[-4000:]
         return f"exit code {completed.returncode}\n{tail}".strip()
+
+    def execute_pending_command(self, item: dict[str, str]) -> str:
+        """Consume one exact approved request, without a durable permission.
+
+        Called only by the controller after a separate human decision.
+        """
+        if not self.pending_commands or self.pending_commands[0] != item:
+            raise WorkspaceError("Command request is missing or no longer first.")
+        command = item["command"]
+        cwd = self.rel(self.resolve(item["cwd"]))
+        if self.command_kind(command) != "ask":
+            raise WorkspaceError("Command is no longer in allowed_commands.")
+        self.pending_commands.pop(0)
+        self._approved_once = (command, cwd)
+        try:
+            return self.run_command({"command": command, "cwd": cwd})
+        finally:
+            self._approved_once = None
 
     def command_kind(self, command: str) -> str | None:
         normalized = " ".join(command.split())
@@ -581,9 +621,30 @@ def _is_secret(name: str) -> bool:
     return lowered == ".env" or lowered.startswith(".env.")
 
 
+def _command_argv(command: str) -> list[str]:
+    """Parse an allowed command without a shell or command-chaining syntax.
+
+    The project allowlist remains authoritative. Additional arguments may be
+    accepted by the allowlist but never become shell operators.
+    """
+    if any(ch in command for ch in (";", "|", "&", ">", "<", "$", "`", "\\n", "\\r")):
+        raise WorkspaceError("Shell operators and expansions are not allowed.")
+    try:
+        argv = shlex.split(command, posix=(os.name != "nt"))
+    except ValueError as exc:
+        raise WorkspaceError(f"Invalid command syntax: {exc}") from exc
+    if not argv:
+        raise WorkspaceError("Command is empty.")
+    return argv
+
+
 def _command_matches(command: str, allowed: str) -> bool:
-    allowed = " ".join(allowed.split())
-    return command == allowed or command.startswith(allowed + " ")
+    try:
+        requested = _command_argv(command)
+        prefix = _command_argv(allowed)
+    except WorkspaceError:
+        return False
+    return requested[:len(prefix)] == prefix
 
 
 def _github_error(exc: urllib.error.HTTPError) -> str:
