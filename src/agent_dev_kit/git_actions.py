@@ -70,6 +70,15 @@ class LocalGitExecutor:
                 ["checkout", "-b", arguments["branch"], arguments["base_branch"]],
             )
         elif operation == "direct_write":
+            # Guard the *actual* checkout, not only the branch named by caller.
+            # Without this, a checkout between approval and commit could write
+            # onto a protected branch while the policy checked a task branch.
+            actual = current_branch(self.root)
+            expected = str(arguments["branch"])
+            if actual != expected:
+                raise GitActionError(
+                    f"Current branch '{actual}' differs from authorized '{expected}'."
+                )
             message = str(arguments["payload"].get("message") or "agent-dev-kit")
             # Runtime traces are local evidence, never part of the commit.
             added = run_git(self.root, ["add", "-A"])
