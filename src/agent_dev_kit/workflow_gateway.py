@@ -181,7 +181,7 @@ class WorkflowController:
             raise ValueError("No interrupted workflow awaiting recovery.")
         if not approve:
             return self.cancel(workflow_id)
-        if state.mode == "act" and state.branch is not None:
+        if state.mode == "act" and state.phase == "execute":
             state.status, state.phase = "manual_review_required", "manual_review_required"
             state.failure = (
                 "Action run was interrupted after branch creation; inspect the "
@@ -227,9 +227,36 @@ class WorkflowController:
         if not approve:
             state.status = "rejected"
             state.phase = "rejected"
+            if kind == "command":
+                state.failure = "Restricted command rejected; action validation is incomplete."
             if state.plan is not None and kind == "story":
                 state.runtime.kit.record_story_rejected(state.plan)
             return self._snapshot(workflow_id, state)
+        if kind == "command":
+            assert state.plan is not None and state.branch is not None
+            if not state.workspace.pending_commands:
+                raise ValueError("No pending command exists.")
+            entry = state.workspace.pending_commands[0]
+            if entry != pending["details"]:
+                raise ValueError("Command request changed since approval.")
+            # Don't authorize a command if a different checkout was selected.
+            if current_branch(state.workspace.root) != state.branch:
+                state.status, state.phase = "blocked", "blocked"
+                state.failure = "Git branch changed before restricted command approval."
+                return self._snapshot(workflow_id, state)
+            try:
+                result = state.workspace.execute_pending_command(entry)
+            except Exception as exc:
+                state.status, state.phase = "blocked", "blocked"
+                state.failure = f"Approved command could not run: {exc}"
+                return self._snapshot(workflow_id, state)
+            if not result.startswith("exit code 0"):
+                state.status, state.phase = "blocked", "blocked"
+                state.failure = f"Approved command failed: {result[:600]}"
+                return self._snapshot(workflow_id, state)
+            if state.workspace.pending_commands:
+                return self._next_command_approval(workflow_id, state)
+            return self._finish_action(workflow_id, state)
         if kind == "plan":
             state.phase = "intake"
         elif kind == "story":
@@ -453,27 +480,14 @@ class WorkflowController:
                 state.workspace.bind_trace(state.plan.trace)
                 state.plan.facts = prepare_task_facts(state.workspace, config, state.request)
                 state.runtime.kit.execute_plan_sync(state.plan)
-                if state.mode == "act" and state.workspace.pending_commands:
-                    state.phase = "command_confirmation"
-                    return self._next_command_approval(ident, state)
+                if state.mode == "act":
+                    if state.workspace.pending_commands:
+                        state.phase = "command_confirmation"
+                        return self._next_command_approval(ident, state)
+                    return self._finish_action(ident, state)
                 verify_task_outputs(state.plan, state.workspace)
-                if state.mode != "act":
-                    state.status, state.phase = "completed", "completed"
-                    return self._snapshot(ident, state)
-                state.review = action_review(state.workspace, state.plan, state.branch)
-                if not state.review["changed_files"]:
-                    state.status, state.phase = "completed", "completed"
-                    return self._snapshot(ident, state)
-                if not state.review["diff_complete"]:
-                    state.status, state.phase = "blocked", "blocked"
-                    state.failure = "Diff too large for safe MCP approval; review and commit locally."
-                    return self._snapshot(ident, state)
-                state.phase = "commit_confirmation"
-                return self._require(
-                    ident, state, "commit",
-                    "¿Aprobás el commit local del diff completo revisado?",
-                    details=state.review,
-                )
+                state.status, state.phase = "completed", "completed"
+                return self._snapshot(ident, state)
             if state.phase in FINISHED or state.phase in {
                 "issue_required", "branch_confirmation", "plan_confirmation",
                 "story_confirmation", "commit_confirmation",
@@ -481,6 +495,24 @@ class WorkflowController:
             }:
                 return self._snapshot(ident, state)
             raise RuntimeError("Unsupported workflow phase: " + state.phase)
+
+    def _finish_action(self, ident: str, state: WorkflowState) -> dict[str, Any]:
+        assert state.plan is not None and state.branch is not None
+        verify_task_outputs(state.plan, state.workspace)
+        state.review = action_review(state.workspace, state.plan, state.branch)
+        if not state.review["changed_files"]:
+            state.status, state.phase = "completed", "completed"
+            return self._snapshot(ident, state)
+        if not state.review["diff_complete"]:
+            state.status, state.phase = "blocked", "blocked"
+            state.failure = "Diff too large for safe MCP approval; review and commit locally."
+            return self._snapshot(ident, state)
+        state.phase = "commit_confirmation"
+        return self._require(
+            ident, state, "commit",
+            "¿Aprobás el commit local del diff completo revisado?",
+            details=state.review,
+        )
 
     def _next_command_approval(self, ident: str, state: WorkflowState) -> dict[str, Any]:
         entry = state.workspace.pending_commands[0]
