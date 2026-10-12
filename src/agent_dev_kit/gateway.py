@@ -103,6 +103,8 @@ class AgentDevKitGateway:
         self._clock = clock or monotonic
         self._conversations: dict[str, ConversationGatewayState] = {}
         self._tasks: dict[str, TaskGatewayState] = {}
+        from agent_dev_kit.workflow_gateway import WorkflowController
+        self.workflow = WorkflowController(self, clock=self._clock)
 
     def status(self) -> dict[str, Any]:
         """Return safe project/runtime metadata without provider secrets."""
