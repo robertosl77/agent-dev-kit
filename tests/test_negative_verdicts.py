@@ -32,11 +32,19 @@ No se permite escribir directamente en `main`.
 """
 
 # Reproduction of the /task output that incorrectly approved CA-5 on project.yaml.
-REAL_ANSWER = """[OK] CA-4 | README.md | ausencia comprobada de fix/mvp-funcional y feat/mvp-foundation-v0.1
+REAL_ANSWER = """[OK] CA-1 | README.md:3 | "es integración."
+[OK] CA-2 | README.md:4 | "Cada tarea tiene una rama de `develop`."
+[OK] CA-3 | README.md:5 | "No se permite escribir directamente en `main`."
+[OK] CA-4 | README.md | ausencia comprobada de fix/mvp-funcional y feat/mvp-foundation-v0.1
 [OK] CA-5 | README.md:3 | "Cada tarea tiene una rama de `develop`."
 
 Conclusión: Los cinco criterios están cumplidos y se puede cerrar la issue.
 """
+
+
+class IssueWorkspace(Workspace):
+    def read_issue(self, args):
+        return ISSUE
 
 
 def example(tmp_path):
@@ -46,7 +54,7 @@ def example(tmp_path):
         "git_workflow:\n  branches: {integration: develop}\n",
         encoding="utf-8",
     )
-    return Workspace(tmp_path)
+    return IssueWorkspace(tmp_path)
 
 
 def test_issue_parsing_identifies_negative_branch_evidence():
@@ -141,7 +149,6 @@ def test_rule_bound_verdict_with_authority_requires_real_citation(tmp_path):
 
 def test_facts_prompt_explains_absence_and_missing_authority(tmp_path):
     workspace = example(tmp_path)
-    workspace.read_issue = lambda data: ISSUE
     config = SimpleNamespace(rule_sources={})
     facts = build_facts(workspace, config, "Analizá issue #117")
     assert "Code verified absence in README.md" in facts.text
