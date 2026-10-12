@@ -16,6 +16,7 @@ from agent_dev_kit.agents import (
     build_product_definition,
     build_reviewer_definition,
     build_security_definition,
+    build_scrum_master_definition,
     build_testing_definition,
     build_triage_definition,
     build_ux_ui_definition,
@@ -40,6 +41,7 @@ AgentDefinitionBuilder: TypeAlias = Callable[..., AgentDefinition]
 AGENT_BUILDERS: dict[str, AgentDefinitionBuilder] = {
     "product": build_product_definition,
     "pmo": build_pmo_definition,
+    "scrum_master": build_scrum_master_definition,
     "architecture": build_architecture_definition,
     "ux_ui": build_ux_ui_definition,
     "backend": build_backend_definition,

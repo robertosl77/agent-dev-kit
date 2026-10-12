@@ -28,8 +28,14 @@ AGENT_GATE_GUIDANCE: dict[str, str] = {
         "acceptance criteria, product discovery, or unresolved requirements."
     ),
     "pmo": (
-        "Select only for backlog governance, sequencing, dependencies, "
+        "Select only for repository backlog governance, issue hygiene, "
         "release planning, blockers, or work-management decisions."
+    ),
+    "scrum_master": (
+        "Select for a new/changed user-facing capability, including a tiny "
+        "form change, to draft a reviewable story and acceptance criteria. "
+        "Also facilitate Scrum iterations when genuinely useful. "
+        "Skip isolated technical fixes without functional clarification."
     ),
     "architecture": (
         "Select only for cross-layer impact, ownership/boundary decisions, "

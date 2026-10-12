@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 class RiskFlag(StrEnum):
     FUNCTIONAL_AMBIGUITY = "functional_ambiguity"
+    USER_STORY_VALIDATION = "user_story_validation"
     BACKLOG_COORDINATION = "backlog_coordination"
     CROSS_LAYER = "cross_layer"
     UX_CHANGE = "ux_change"
@@ -56,6 +57,7 @@ KNOWN_AGENT_KEYS = frozenset(
         "triage",
         "product",
         "pmo",
+        "scrum_master",
         "architecture",
         "ux_ui",
         "backend",
@@ -74,6 +76,7 @@ KNOWN_AGENT_KEYS = frozenset(
 
 RISK_REQUIRED_AGENTS: dict[str, tuple[str, ...]] = {
     RiskFlag.FUNCTIONAL_AMBIGUITY.value: ("product",),
+    RiskFlag.USER_STORY_VALIDATION.value: ("scrum_master",),
     RiskFlag.BACKLOG_COORDINATION.value: ("pmo",),
     RiskFlag.CROSS_LAYER.value: ("architecture",),
     RiskFlag.UX_CHANGE.value: ("ux_ui",),
@@ -252,6 +255,17 @@ def preclassify_request(request: str) -> tuple[str, ...]:
         for value in values:
             if value.value not in detected:
                 detected.append(value.value)
+
+    # Independent routing for explicit user-facing capability changes.
+    # Requiring both intention and a functional noun avoids technical-fix noise.
+    if _matches(
+        text,
+        r"\b(agregar(?:le)?|agregá|añadir|incorporar|implementar|crear|permitir|habilitar|modificar|sumar|add|create|implement|allow|enable|change)\b",
+    ) and _matches(
+        text,
+        r"\b(formulario|opci[oó]n|moneda|pantalla|interfaz|usuario|funcionalidad|aplicaci[oó]n|selector|form|currency|feature|user|application|screen|dropdown)\b",
+    ):
+        add(RiskFlag.USER_STORY_VALIDATION)
 
     if _matches(
         text,
