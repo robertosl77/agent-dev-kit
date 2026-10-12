@@ -6,6 +6,8 @@ about whether to continue are made by the trusted host/client boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
+from difflib import unified_diff
 from pathlib import Path
 from typing import Any
 
@@ -105,12 +107,54 @@ def create_action_branch(workspace: Any, config: Any, request: str, *, issue: st
 
 
 def action_review(workspace: Any, plan: TaskPlan, branch: str) -> dict[str, Any]:
-    """Review only: no staging, commits, approvals, or model calls."""
+    """Describe exact pending changes and bind review approval to a fingerprint.
+
+    Abort rather than allow a blind remote commit if the diff is too large,
+    a path cannot be safely inspected, or an untracked file is secret.
+    """
+    from agent_dev_kit.workspace_tools import run_git
+
+    changed = uncommitted_changes(workspace.root)
+    chunks = []
+    content_digest = sha256()
+    raw_diff = run_git(workspace.root, ["diff", "--no-ext-diff", "--binary"])
+    if raw_diff.returncode != 0:
+        raise RuntimeError("Cannot inspect Git diff before commit.")
+    tracked_diff = raw_diff.stdout
+    chunks.append(tracked_diff)
+    content_digest.update(tracked_diff.encode("utf-8", errors="surrogateescape"))
+    for status in changed:
+        name = status[3:]
+        if name.startswith('"') or " -> " in name:
+            raise RuntimeError("Ambiguous Git path in review; inspect locally.")
+        # Resolve writes, not just reads: secrets and .agent-dev-kit are off-limits.
+        target = workspace.resolve(name, for_write=True)
+        content_digest.update(status.encode("utf-8"))
+        if target.is_file():
+            data = target.read_bytes()
+            content_digest.update(sha256(data).digest())
+            if status.startswith("??"):
+                try:
+                    lines = data.decode("utf-8").splitlines(keepends=True)
+                except UnicodeDecodeError:
+                    raise RuntimeError("Binary untracked file needs manual review.")
+                chunks.append("".join(unified_diff(
+                    [], lines, fromfile="/dev/null", tofile=name,
+                )))
+        elif not target.exists():
+            content_digest.update(b"<deleted>")
+        else:
+            raise RuntimeError("Non-file Git path needs manual review.")
+    diff = "\n".join(chunks)
+    max_chars = 50_000
     events = list(workspace.events)
     return {
         "branch": branch,
-        "changed_files": uncommitted_changes(workspace.root),
+        "changed_files": changed,
         "diff_stat": diff_stat(workspace.root),
+        "diff": diff[:max_chars],
+        "diff_complete": len(diff) <= max_chars,
+        "fingerprint": content_digest.hexdigest(),
         "commands": [
             event for event in events if event.get("tool") == "run_command"
         ],
