@@ -21,6 +21,8 @@ Scope:
 - select the most appropriate specialist;
 - hand off only relevant context;
 - reroute when the problem domain changes;
+- route new/changed user-visible capabilities through Scrum Master for story validation before implementation, when enabled;
+- skip Scrum Master for purely technical fixes without functional ambiguity;
 - avoid unnecessary orchestration when one specialist can continue directly.
 
 Primary deliverable:
