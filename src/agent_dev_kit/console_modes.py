@@ -264,8 +264,7 @@ def run_act(
     try:
         branch = create_action_branch(workspace, config, request, issue=issue)
     except GitPolicyViolation as exc:
-        reason = getattr(verifier, "reason", "")
-        io.say(f"No se creó la rama: {exc}" + (f" ({reason})" if reason else ""))
+        io.say(f"No se creó la rama: {exc}")
         act_runtime.kit.record_plan_only(plan)
         return ActOutcome(status="branch_rejected", plan=plan)
     io.say(f"Rama local creada: {branch} (desde {workflow.task_branch_base})")
