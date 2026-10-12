@@ -4,7 +4,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 ## Estado
 
-El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
+El framework tiene un catálogo base de 17 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
 Versión actual: `v0.3.0`. Tres proveedores (Anthropic, Gemini y OpenAI) elegidos en cada ejecución, y agentes con **herramientas**: leen el repo y las issues, y con `/do` cambian archivos y corren tests en una rama local, siempre con tu aprobación. Cada uso registra grafo, modelo y consumo. Ver [CHANGELOG](CHANGELOG.md).
 
@@ -32,6 +32,7 @@ Desde `v0.2.0` vienen registrados de fábrica `AnthropicProvider`, `GeminiProvid
 ```text
 Agent Product
 Agent PMO
+Agent Scrum Master
 Agent Architecture
 Agent UX/UI
 Agent Backend
@@ -258,7 +259,7 @@ Dentro de la sesión:
 
 ```text
 /plan <pedido>   solo el plan
-/task <pedido>   plan + propuesta de cada agente (leen el repo, no lo modifican)
+/task <pedido>   plan + validación de historia si hay cambio funcional + propuestas
 /do   <pedido>   plan → OK → rama local desde develop → cambian archivos y corren tests → OK → commit local
 ```
 
