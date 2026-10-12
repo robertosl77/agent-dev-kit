@@ -240,3 +240,24 @@ def test_usage_and_graphs_are_read_only(setup_repo):
     assert isinstance(gateway.workflow.graphs()["runs"], list)
     assert isinstance(gateway.workflow.candidates()["report"], list)
     assert git(root, "branch", "--show-current") == "develop"
+
+
+def test_commit_rejects_branch_switched_after_approval(setup_repo):
+    gateway, _, root = setup_repo
+    gateway.workflow.allow_actions = True
+    result = gateway.workflow.start(REQUEST, mode="act")
+    result = gateway.workflow.decide(
+        result["workflow_id"], result["approval"]["id"], True,
+    )
+    result = gateway.workflow.decide(
+        result["workflow_id"], result["approval"]["id"], True,
+    )
+    assert result["approval"]["kind"] == "commit"
+    git(root, "checkout", "-q", "-b", "main")
+    denied = gateway.workflow.decide(
+        result["workflow_id"], result["approval"]["id"], True,
+    )
+    assert denied["status"] == "failed"
+    assert "differs from authorized" in denied["failure"]
+    assert git(root, "branch", "--show-current") == "main"
+    assert git(root, "log", "-1", "--format=%s") == "initial"
