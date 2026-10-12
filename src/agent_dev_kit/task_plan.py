@@ -629,12 +629,76 @@ def render_risk_agent_map(enabled_agents: Iterable[str]) -> str:
     return "\n".join(lines)
 
 
+ACT_CAPABILITY_RULES = """Execution contract for /do (strictly enforced after planning):
+- This host creates ONE local task branch from the configured integration branch
+  after the person approves the plan. Do NOT create branches in DAG nodes,
+  and do NOT invent a task branch name: the host derives the real name.
+- Nodes may read and edit local files and run allowlisted commands, using
+  the tools actually available to that specialist.
+- A reviewer inspects the LOCAL workspace changes / git diff and acceptance
+  evidence after the implementation node. It does NOT review a GitHub PR.
+- Only the host asks the person to approve the final LOCAL commit. No DAG
+  node commits changes.
+- NO git push, pull-request creation/submission/review/approval/merge, remote
+  GitHub mutation, or release/publish step: these are unavailable in /do.
+- If the request would require an unavailable remote action, report it as an
+  unmet limitation outside the executable DAG, never promise to do it.
+"""
+
+
+def validate_act_plan_capabilities(plan: TaskPlan) -> None:
+    """Reject actions not provided by the local /do executor.
+
+    Check model-selected node objectives instead of assuming the planner
+    respected an instruction. Reject before any approval or mutation.
+    """
+    remote_pr_action = re.compile(
+        r"\b(?:open|create|submit|raise|publish|review|approve|merge|close|"
+        r"abrir|crear|enviar|revisar|aprobar|fusionar|cerrar)\s+"
+        r"(?:(?:a|an|the|this|that|un|una|el|la|los|las|new|nuevo|"
+        r"nueva|corresponding|draft|borrador)\s+){0,3}"
+        r"(?:pull[ -]?requests?|PRs?)\b"
+        r"|\b(?:git\s+push|push\s+(?:to\s+)?(?:origin|github|remote)|"
+        r"pushear|empujar\s+(?:a\s+)?(?:github|remoto))\b",
+        re.IGNORECASE,
+    )
+    host_owned_action = re.compile(
+        r"\b(?:git\s+commit|(?:create|make|perform|crear|hacer|realizar)\s+"
+        r"(?:(?:a|the|un|el|local)\s+){0,2}commit)\b"
+        r"|\b(?:create|crear|checkout|switch\s+to)\s+"
+        r"(?:(?:a|the|new|una|la|nueva|local|task)\s+){0,3}"
+        r"(?:task\s+)?(?:branch|rama)\b"
+        r"|\b(?:on\s+(?:a|the)\s+branch|en\s+(?:la\s+)?rama)\s+"
+        r"(?:feat|fix|docs|chore|hotfix|refactor|test)/[\w.-]+",
+        re.IGNORECASE,
+    )
+    for node in plan.nodes:
+        objective = node.objective
+        for pattern in (remote_pr_action, host_owned_action):
+            for match in pattern.finditer(objective):
+                before = objective[max(0, match.start() - 36):match.start()]
+                if re.search(
+                    r"(?:\b(?:do\s+not|don't|never|without|no|sin|"
+                    r"nunca|evitar|avoid)\s+(?:\w+\s+){0,2})$",
+                    before,
+                    re.IGNORECASE,
+                ):
+                    continue
+                raise TaskPlanError(
+                    f"Node '{node.id}' requests unavailable /do operation "
+                    f"'{match.group(0)}'. /do supports one host-created local "
+                    "branch, local file changes/tests, local diff review, "
+                    "and a host-approved local commit; no remote PR or push."
+                )
+
+
 def build_planning_prompt(
     request: str,
     *,
     enabled_agents: Iterable[str],
     available_agents: Iterable[str],
     project_policies: Iterable[ProjectRoutingPolicy] = (),
+    mode: str = "propose",
 ) -> str:
     enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
     available = tuple(normalize_agent_key(item) for item in available_agents)
@@ -657,8 +721,11 @@ def build_planning_prompt(
         for policy in project_policies
     )
     risk_lines = render_risk_agent_map(enabled)
+    execution_contract = ACT_CAPABILITY_RULES if mode == "act" else ""
 
     return f"""Planning-only operation. Do not hand off.
+
+{execution_contract}
 
 Analyze the user request and return the MINIMUM SUFFICIENT task execution DAG
 as JSON only. Every specialist call has cost. Never select an agent merely
@@ -725,7 +792,7 @@ Rules:
   defined security/accessibility checks justify repeatable validation.
 - Do NOT select Security without material security/privacy surface.
 - Do NOT select Architecture for a tiny local change with no structural impact.
-- Create independent branches when work can proceed independently.
+- Express parallel work through independent DAG nodes, not extra Git branches.
 - Express ordering only through depends_on.
 - Prefer direct specialist-to-specialist flow when the dependency is clear.
 - Do not create a human-QA node; human QA happens after the DAG.
