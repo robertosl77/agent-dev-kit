@@ -4,7 +4,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 ## Estado
 
-> **En desarrollo en rama `feat/mcp-cli-parity`:** flujos MCP para planificación, propuestas y acción aprobada; estado actual, restricciones y pruebas en [Paridad CLI/MCP](docs/mcp_cli_parity.md). No forma parte de `main` ni es un release validado.
+> **En desarrollo en rama `feat/mcp-cli-parity`:** flujos MCP para planificación, propuestas y acción aprobada, con checkpoints y permisos individuales; estado actual, restricciones y pruebas en [Paridad CLI/MCP](docs/mcp_cli_parity.md). No forma parte de `main` ni es un release validado.
 
 El framework tiene un catálogo base de 17 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
