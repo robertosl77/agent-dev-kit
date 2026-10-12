@@ -392,6 +392,13 @@ def _citation_problem(
             "project.yaml no sustituye la fuente de reglas del proyecto"
         )
     if criterion is not None and criterion.absence_refs:
+        if criterion.rule_bound:
+            # A negative textual check cannot, by itself, establish that a
+            # separate authoritative project rule was followed.
+            return (
+                f"{criterion.id}: se requieren evidencia de ausencia y cita "
+                "de la fuente de reglas; no basta la ausencia documental"
+            )
         evidence = _absence_evidence(workspace, criterion)
         if evidence is None:
             return f"{criterion.id}: no hay prueba de ausencia"
