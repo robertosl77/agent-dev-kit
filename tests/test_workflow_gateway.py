@@ -1,3 +1,8 @@
+from dataclasses import replace
+from types import MethodType
+from agent_dev_kit.project_config import WorkspaceConfig
+from agent_dev_kit.workspace_tools import WorkspaceError
+
 """MCP workflows exercise the same DAG, workspace and Git policy as CLI."""
 
 import json
@@ -261,3 +266,133 @@ def test_commit_rejects_branch_switched_after_approval(setup_repo):
     assert "differs from authorized" in denied["failure"]
     assert git(root, "branch", "--show-current") == "main"
     assert git(root, "log", "-1", "--format=%s") == "initial"
+
+
+def test_plan_approval_survives_restart_but_old_nonce_is_revoked(setup_repo):
+    gateway, provider, root = setup_repo
+    gateway.workflow.allow_actions = True
+    first = gateway.workflow.start(REQUEST, mode="act")
+    old_nonce = first["approval"]["id"]
+    restarted = AgentDevKitGateway(root, registry=gateway.registry)
+    restarted.workflow.allow_actions = True
+    loaded = restarted.workflow.status(first["workflow_id"])
+    assert loaded["status"] == "approval_required"
+    assert loaded["approval"]["kind"] == "plan"
+    assert loaded["approval"]["id"] != old_nonce
+    with pytest.raises(ValueError, match="matching outstanding"):
+        restarted.workflow.decide(first["workflow_id"], old_nonce, True)
+    story = restarted.workflow.decide(
+        first["workflow_id"], loaded["approval"]["id"], True
+    )
+    assert story["approval"]["kind"] == "story"
+    assert provider.ran.count("Agent Triage Planner") == 1
+
+
+def test_story_approval_survives_restart_without_reexecuting_scrum(setup_repo):
+    gateway, provider, root = setup_repo
+    first = gateway.workflow.start(REQUEST, mode="propose")
+    assert first["approval"]["kind"] == "story"
+    restarted = AgentDevKitGateway(root, registry=gateway.registry)
+    loaded = restarted.workflow.status(first["workflow_id"])
+    assert loaded["approval"]["kind"] == "story"
+    approved = restarted.workflow.decide(
+        first["workflow_id"], loaded["approval"]["id"], True
+    )
+    assert approved["status"] == "completed"
+    assert provider.ran.count("Agent Scrum Master") == 1
+
+
+def test_commit_approval_survives_restart_and_validates_diff(setup_repo):
+    gateway, _, root = setup_repo
+    gateway.workflow.allow_actions = True
+    response = gateway.workflow.start(REQUEST, mode="act")
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    assert response["approval"]["kind"] == "commit"
+    restarted = AgentDevKitGateway(root, registry=gateway.registry)
+    restarted.workflow.allow_actions = True
+    restored = restarted.workflow.status(response["workflow_id"])
+    assert restored["approval"]["kind"] == "commit"
+    assert restored["approval"]["id"] != response["approval"]["id"]
+    committed = restarted.workflow.decide(
+        response["workflow_id"], restored["approval"]["id"], True
+    )
+    assert committed["status"] == "completed"
+    assert git(root, "log", "-1", "--format=%s").startswith("T-101:")
+
+
+def test_interrupted_act_never_replays_write_nodes(setup_repo):
+    gateway, provider, root = setup_repo
+    gateway.workflow.allow_actions = True
+    response = gateway.workflow.start(REQUEST, mode="act")
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    assert response["approval"]["kind"] == "commit"
+    state = gateway.workflow._sessions[response["workflow_id"]]
+    state.phase, state.status = "execute", "executing"
+    gateway.workflow.status(response["workflow_id"])
+    restarted = AgentDevKitGateway(root, registry=gateway.registry)
+    restarted.workflow.allow_actions = True
+    status = restarted.workflow.status(response["workflow_id"])
+    assert status["status"] == "interrupted"
+    recovered = restarted.workflow.resume(response["workflow_id"], True)
+    assert recovered["status"] == "manual_review_required"
+    assert git(root, "log", "-1", "--format=%s") == "initial"
+
+
+def test_allowed_command_is_deferred_until_separate_human_consent(setup_repo):
+    gateway, provider, root = setup_repo
+    gateway.config = replace(
+        gateway.config,
+        workspace=WorkspaceConfig(allowed_commands=("git status",)),
+    )
+    provider_call = provider.run_sync
+
+    def call_with_command(self, agent, message, *, session=None):
+        output = provider_call(agent, message, session=session)
+        if agent.name == "Agent Frontend" and any(
+            t.name == "run_command" for t in agent.native["tools"]
+        ):
+            command_tool = next(
+                t for t in agent.native["tools"] if t.name == "run_command"
+            )
+            with pytest.raises(WorkspaceError, match="requires explicit human"):
+                command_tool.handler({"command": "git status --short"})
+        return output
+
+    provider.run_sync = MethodType(call_with_command, provider)
+    gateway.workflow.allow_actions = True
+    response = gateway.workflow.start(REQUEST, mode="act")
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    response = gateway.workflow.decide(
+        response["workflow_id"], response["approval"]["id"], True
+    )
+    assert response["approval"]["kind"] == "command"
+    assert not any(
+        event.get("command") == "git status --short" and event["ok"]
+        for event in gateway.workflow._sessions[response["workflow_id"]].workspace.events
+    )
+
+    restarted = AgentDevKitGateway(root, registry=gateway.registry)
+    restarted.workflow.allow_actions = True
+    recovered = restarted.workflow.status(response["workflow_id"])
+    assert recovered["approval"]["kind"] == "command"
+    assert recovered["approval"]["id"] != response["approval"]["id"]
+    decided = restarted.workflow.decide(
+        response["workflow_id"], recovered["approval"]["id"], True
+    )
+    assert decided["approval"]["kind"] == "commit"
+    assert any(
+        event.get("command") == "git status --short" and event["ok"]
+        for event in restarted.workflow._sessions[response["workflow_id"]].workspace.events
+    )
