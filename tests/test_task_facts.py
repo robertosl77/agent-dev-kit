@@ -269,3 +269,33 @@ def test_verify_verdict_never_upgrades_and_ignores_free_text(tmp_path):
 
     assert "[OK]" not in output
     assert len(notes) == 4  # CA-2..CA-5 were not evaluated
+
+
+def test_real_output_without_rule_sources_blocks_false_closure(project):
+    """A consumer that has not declared rule sources must fail closed on CA-5."""
+    path = project / ".agent-dev-kit" / "project.yaml"
+    path.write_text(
+        PROJECT_YAML.replace(
+            'context:\n  rule_sources:\n    git_workflow: "docs/tareas.md#Regla de ramas"\n',
+            "",
+        ),
+        encoding="utf-8",
+    )
+    scripted = Scripted(
+        '[OK] CA-1 | README.md:3 | "Rama de **integración**"\n'
+        '[OK] CA-4 | README.md | ausencia comprobada de '
+        'fix/mvp-funcional y feat/mvp-foundation-v0.1\n'
+        '[OK] CA-5 | README.md:3 | "Rama de **integración**"\n'
+        'Conclusión: todos los criterios cumplidos. Puede cerrarse la issue.\n'
+    )
+    result, output = run(project, scripted)
+    report = result.nodes[0].output
+    assert "[OK] CA-4 | README.md | ausencia comprobada" in report
+    assert "[PENDIENTE] CA-5" in report
+    assert "falta configurar context.rule_sources" in report
+    assert "Veredicto global verificado: PENDIENTE" in report
+    assert "No corresponde afirmar que todos los criterios se cumplen" in report
+    assert "context.rule_sources is NOT configured" in (
+        scripted.calls[1]["messages"][0]["content"][0]["text"]
+    )
+    assert "Control de Agent Dev Kit" in output
