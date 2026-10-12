@@ -12,6 +12,7 @@ La configuración `agents.enabled` define cuáles existen efectivamente en runti
 agents:
   enabled:
     - pmo
+    - scrum_master
     - architecture
     - backend
     - frontend
