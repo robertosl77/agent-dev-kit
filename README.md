@@ -4,7 +4,7 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 ## Estado
 
-> **En desarrollo en rama `feat/mcp-cli-parity`:** flujos MCP para planificación, propuestas y acción aprobada, con checkpoints y permisos individuales; estado actual, restricciones y pruebas en [Paridad CLI/MCP](docs/mcp_cli_parity.md). No forma parte de `main` ni es un release validado.
+> **Integrado en `develop`, no publicado en `main`:** flujos MCP para planificación, propuestas y acción aprobada, con checkpoints y permisos individuales. Ver [Paridad CLI/MCP](docs/mcp_cli_parity.md). La conexión privada y las actualizaciones versionadas se desarrollan en `feat/mcp-remote-version-sync`.
 
 El framework tiene un catálogo base de 17 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
 
@@ -194,6 +194,7 @@ agents:
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Smoke test pre-versionado](docs/smoke_test.md)
 - [Interfaz MCP para clientes de chat](docs/interfaz_mcp.md)
+- [Conexión privada de ChatGPT mediante Secure MCP Tunnel](docs/conexion_chatgpt_tunnel.md)
 - [Integración con GitHub Copilot](docs/integracion_copilot.md)
 - [Distribución y versionado](docs/distribucion_versionado.md)
 - [Decisión de distribución cerrada](docs/distribucion_cerrada.md)
@@ -289,6 +290,9 @@ Streamable HTTP local:
 agent-dev-kit mcp . --transport streamable-http
 ```
 
+Para conectar un cliente remoto sin abrir puertos públicos:
+[Secure MCP Tunnel](docs/conexion_chatgpt_tunnel.md).
+
 El servidor queda vinculado al proyecto indicado al arrancar y no acepta
 rutas de repositorio desde las herramientas.
 
@@ -303,3 +307,24 @@ python -m pip install \
 ```
 
 No se recomienda consumir `main` como dependencia estable.
+
+
+### Verificación de actualizaciones
+
+Consultar un tag **estable, explícito** y obtener su commit sin modificar el
+entorno:
+
+```bash
+agent-dev-kit update --tag v0.3.1
+```
+
+Instalar la versión consultada sólo en una instalación **no editable**, con
+autorización expresa:
+
+```bash
+agent-dev-kit update --tag v0.3.1 --apply --yes
+```
+
+Se instala un SHA exacto, no una rama cambiante. Las instalaciones editables
+se actualizan con Git, no con `pip update`. El tag del ejemplo sólo ilustra la
+sintaxis; comprobar que realmente exista antes de usarlo.
