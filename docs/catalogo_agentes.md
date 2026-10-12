@@ -20,7 +20,8 @@ No define todavía prompts, modelos, proveedores ni implementación interna. Es 
 | Agente / archivo | Responsabilidad | Alcance | Resultado / entregable principal | Herramientas típicas |
 |---|---|---|---|---|
 | `agent_product.py` | Convertir una idea, necesidad o problema de negocio en una definición construible. | Discovery/business analysis, visión, stakeholders, alcance, casos de uso, requisitos funcionales/no funcionales y restricciones de accesibilidad, privacidad/compliance, security, reliability u operabilidad cuando correspondan. | Definición funcional / PRD y roadmap conceptual de capacidades. | Documentación del proyecto, conversaciones de discovery, requisitos, decisiones de negocio, Issues como fuente de contexto. |
-| `agent_pmo.py` | Gobernar y ordenar el trabajo una vez definido qué producto se quiere construir. | Backlog, prioridades, dependencias, bloqueos, secuencia recomendada, estado, iteraciones, seguimiento y dinámica tipo Scrum. | Backlog gobernado y plan de ejecución priorizado. | GitHub Issues, Projects, PRs, ramas, commits, milestones y dependencias. |
+| `agent_pmo.py` | Gobernar tareas del repositorio y seguimiento de entregas. | Estado de issues, prioridades operativas, dependencias, bloqueos y releases. | Backlog operativo, siguiente trabajo ejecutable y evidencia de entrega. | GitHub Issues, Projects, PRs y milestones. |
+| `agent_scrum_master.py` | Validar el entendimiento con historias y facilitar Scrum proporcional. | Historias, criterios verificables, aprobación humana y, en iniciativas amplias, sprints e incrementos. | Historia aprobable antes de desarrollar y plan iterativo cuando corresponda. | Lectura del repositorio e issues; propuestas de nuevas issues sin escritura automática. |
 | `agent_architecture.py` | Definir y proteger la estructura técnica global del sistema. | Capas, módulos, componentes, límites de responsabilidad, integraciones, patrones, decisiones transversales y prevención de duplicación arquitectónica. | Diseño arquitectónico, decisiones y advertencias de impacto transversal. | Código del repositorio, diagramas, documentación técnica, dependencias, ADRs y contratos entre módulos. |
 | `agent_ux_ui.py` | Diseñar y mantener una experiencia e interfaz coherentes. | Flujos, usabilidad, accesibilidad, responsive, sistema de diseño, componentes reutilizables y consistencia visual. | Especificación UX/UI y evolución del sistema de diseño del proyecto consumidor. | Frontend, design tokens, componentes, CSS/SCSS, framework UI, screenshots/prototipos y reglas visuales del proyecto. |
 | `agent_backend.py` | Implementar lógica de servidor y servicios de aplicación. | APIs, servicios, reglas de negocio, integraciones, validaciones y acceso a persistencia desde la aplicación. | Implementación backend y contratos de servicio/API. | Código backend, framework configurado, OpenAPI, tests, logs y herramientas del stack. |
@@ -38,13 +39,19 @@ No define todavía prompts, modelos, proveedores ni implementación interna. Es 
 
 ## Límites y handoffs principales
 
-### Agent Product vs Agent PMO
+### Agent Product vs Agent Scrum Master vs Agent PMO
 
 **Agent Product** responde principalmente:
 
 > ¿Qué producto necesitamos construir y qué capacidades debe tener?
 
 Puede producir un roadmap **conceptual de producto**.
+
+**Agent Scrum Master** responde principalmente:
+
+> ¿Interpretamos correctamente lo que el usuario quiere y cómo lo comprobaremos?
+
+Propone historias y criterios antes de desarrollar. Para trabajos grandes, facilita Product Backlog, Sprint Goal, Sprint Backlog e Increment.
 
 **Agent PMO** responde principalmente:
 
