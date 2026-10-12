@@ -55,6 +55,16 @@ _VERDICT_LINE = re.compile(
 )
 _LOCATION = re.compile(r"([\w./-]+\.\w+):(\d+)(?:\s*[-–]\s*(\d+))?")
 _QUOTE = re.compile(r"[\"“«`']([^\"”»`']{4,})[\"”»`']")
+_NEGATIVE_REFERENCE = re.compile(
+    r"\b(?:evita(?:r)?|sin|ausencia\s+de|elimin\w*|"
+    r"no\s+(?:contien\w*|incluy\w*|mencion\w*))\b",
+    re.IGNORECASE,
+)
+_ABSENCE_PROOF = re.compile(
+    r"\b(?:ausencia|ausentes|no\s+(?:aparecen?|contien\w*|figur\w*|"
+    r"existen?|se\s+mencion\w*))\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +72,8 @@ class Criterion:
     id: str
     text: str
     rule_bound: bool
+    absence_path: str | None = None
+    absence_refs: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -130,14 +142,43 @@ def build_facts(workspace: Any, config: Any, request: str) -> TaskFacts:
     if facts.criteria:
         lines.append("- Acceptance criteria extracted from the issue:")
         for item in facts.criteria:
-            bound = (
-                " [refers to project rules: evaluate against the rule source"
-                + (f" ({', '.join(facts.rule_files)})" if facts.rule_files else "")
-                + " and cite it]"
-                if item.rule_bound
-                else ""
-            )
+            if item.rule_bound and facts.rule_files:
+                bound = (
+                    " [refers to project rules: evaluate against the rule source "
+                    f"({', '.join(facts.rule_files)}) and cite it]"
+                )
+            elif item.rule_bound:
+                bound = (
+                    " [context.rule_sources is NOT configured: verdict MUST be "
+                    "PENDIENTE; project.yaml is not an authoritative substitute]"
+                )
+            else:
+                bound = ""
             lines.append(f"  - {item.id}: {item.text}{bound}")
+            if item.absence_path and item.absence_refs:
+                checked = _absence_evidence(workspace, item)
+                if checked is not None:
+                    found, error = checked
+                    if error:
+                        lines.append(
+                            f"    - Code checked {item.absence_path}: {error}; "
+                            "do not claim OK without evidence."
+                        )
+                    elif found:
+                        lines.append(
+                            f"    - Code checked {item.absence_path}: historical "
+                            f"references PRESENT: {', '.join(found)}. Do not "
+                            "claim an absence."
+                        )
+                    else:
+                        lines.append(
+                            f"    - Code verified absence in {item.absence_path} "
+                            f"of {', '.join(item.absence_refs)}. This is a "
+                            "machine-checked negative fact, not a missing quote. "
+                            f"Report [OK] {item.id} | {item.absence_path} | "
+                            "'ausencia comprobada de <referencias>' if the "
+                            "criterion has no additional unmet requirements."
+                        )
 
     if git_ok:
         unverified = unverified_branch_names(
@@ -159,6 +200,17 @@ def extract_criteria(issue_text: str) -> list[Criterion]:
 
     criteria: list[Criterion] = []
     inside = False
+    # A criterion may say "Evita referencias ..." without repeating the
+    # document named by the issue itself. Only inherit one unambiguous target.
+    preamble = issue_text.splitlines()
+    for index, raw in enumerate(preamble):
+        if _CRITERIA_HEADING.match(raw):
+            preamble = preamble[:index]
+            break
+    named_documents = list(dict.fromkeys(_PATH.findall("\n".join(preamble))))
+    default_document = named_documents[0] if len(named_documents) == 1 else None
+    if not named_documents and re.search(r"\bREADME\b", "\n".join(preamble), re.IGNORECASE):
+        default_document = "README.md"
     for raw in issue_text.splitlines():
         if _CRITERIA_HEADING.match(raw):
             inside = True
@@ -170,14 +222,57 @@ def extract_criteria(issue_text: str) -> list[Criterion]:
         item = _ITEM.match(raw)
         if item:
             text = " ".join(item.group(1).split())
+            absence_path, absence_refs = _absence_spec(text, default_document=default_document)
             criteria.append(
                 Criterion(
                     id=f"CA-{len(criteria) + 1}",
                     text=text,
                     rule_bound=bool(_RULE_WORDS.search(text)),
+                    absence_path=absence_path,
+                    absence_refs=absence_refs,
                 )
             )
     return criteria
+
+
+def _absence_spec(
+    text: str, *, default_document: str | None = None,
+) -> tuple[str | None, tuple[str, ...]]:
+    """Recognize negative branch-reference checks against a named document.
+
+    The issue's target document may be inherited only when its preamble
+    unambiguously names one file. Historical exceptions still need judgment.
+    """
+    if not _NEGATIVE_REFERENCE.search(text):
+        return None, ()
+    tokens = tuple(dict.fromkeys(
+        value for value in re.findall(r"`([^`]+)`", text)
+        if _BRANCH_NAME.fullmatch(value)
+    ))
+    if not tokens:
+        return None, ()
+    match = _PATH.search(text)
+    if match:
+        return match.group(1), tokens
+    if re.search(r"\bREADME\b", text, re.IGNORECASE):
+        return "README.md", tokens
+    return (default_document, tokens) if default_document else (None, ())
+
+
+def _absence_evidence(
+    workspace: Any, criterion: Criterion,
+) -> tuple[tuple[str, ...], str | None] | None:
+    """Return the exact references found in one named document, or an error."""
+    if not criterion.absence_path or not criterion.absence_refs:
+        return None
+    try:
+        target = workspace.resolve(criterion.absence_path)
+        if not target.is_file():
+            return (), f"{criterion.absence_path} no existe"
+        contents = target.read_text(encoding="utf-8", errors="replace").casefold()
+    except Exception:
+        return (), f"{criterion.absence_path} no se pudo leer de forma segura"
+    return tuple(x for x in criterion.absence_refs if x.casefold() in contents), None
 
 
 def referenced_files(workspace: Any, text: str) -> list[str]:
@@ -235,8 +330,13 @@ def verdict_format_note(facts: TaskFacts) -> str:
         f"({ids}) write exactly one line\n"
         "[OK] CA-n | path:line | \"exact text copied from that line\"\n"
         "[PENDIENTE] CA-n | path:line or - | what is missing\n"
-        "An [OK] whose quote is not on that line of that file is turned into "
-        "[PENDIENTE] automatically. Several citations: separate them with ';'.\n\n"
+        "For an explicit negative branch-reference criterion with a code-verified "
+        "absence, use [OK] CA-n | README.md | ausencia comprobada de "
+        "<each exact branch reference>; absence has no quotable line. "
+        "For rule-bound criteria, never substitute project.yaml for an "
+        "authoritative source; if context.rule_sources is missing, report "
+        "PENDIENTE. An [OK] with an unverified quote, absence, or rule source "
+        "is downgraded automatically. Several citations: separate with ';'.\n\n"
     )
 
 
@@ -279,6 +379,19 @@ def verify_verdict(output: str, facts: TaskFacts, workspace: Any) -> tuple[str, 
     if notes:
         lines += ["", "Control de Agent Dev Kit (código, sin tokens):"]
         lines += [f"- {note}" for note in notes]
+        pending = {
+            _criterion_id(match.group("item"))
+            for line in lines
+            if (match := _VERDICT_LINE.match(line))
+            and match.group("status") == "PENDIENTE"
+        }
+        if pending:
+            lines.append(
+                "Veredicto global verificado: PENDIENTE "
+                f"({', '.join(sorted(pending - {None}))}). "
+                "No corresponde afirmar que todos los criterios se cumplen "
+                "ni recomendar el cierre de la issue."
+            )
     return "\n".join(lines), notes
 
 
@@ -289,6 +402,44 @@ def _citation_problem(
     facts: TaskFacts,
     workspace: Any,
 ) -> str | None:
+    if criterion is not None and criterion.rule_bound and not facts.rule_files:
+        return (
+            f"{criterion.id}: falta configurar context.rule_sources; "
+            "project.yaml no sustituye la fuente de reglas del proyecto"
+        )
+    if criterion is not None and criterion.absence_refs:
+        if criterion.rule_bound:
+            # A negative textual check cannot, by itself, establish that a
+            # separate authoritative project rule was followed.
+            return (
+                f"{criterion.id}: se requieren evidencia de ausencia y cita "
+                "de la fuente de reglas; no basta la ausencia documental"
+            )
+        evidence = _absence_evidence(workspace, criterion)
+        if evidence is None:
+            return f"{criterion.id}: no hay prueba de ausencia"
+        found, error = evidence
+        if error:
+            return error
+        if found:
+            return (
+                f"{criterion.id}: las referencias siguen presentes en "
+                f"{criterion.absence_path}: {', '.join(found)}"
+            )
+        if not re.fullmatch(
+            rf"\s*{re.escape(criterion.absence_path or '')}(?::\d+(?:\s*[-–]\s*\d+)?)?\s*",
+            where,
+        ):
+            return f"{criterion.id}: la ausencia debe indicar {criterion.absence_path}"
+        if not _ABSENCE_PROOF.search(rest) or not all(
+            token in rest for token in criterion.absence_refs
+        ):
+            return (
+                f"{criterion.id}: falta declarar la ausencia verificada de "
+                "cada referencia histórica"
+            )
+        return None
+
     locations = _LOCATION.findall(where)
     if not locations:
         return "sin cita archivo:línea"

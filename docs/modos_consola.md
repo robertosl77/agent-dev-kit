@@ -69,10 +69,24 @@ Lo que se puede verificar con código no se le pide al modelo:
        [OK] CA-n | path:línea | "texto exacto"
        cita inexistente / texto que no está en esa línea / OK sin cita /
        criterio de reglas que no cita la fuente   →  [PENDIENTE] + motivo
+       criterio de reglas sin context.rule_sources → [PENDIENTE] + motivo
+       referencias históricas cuyo texto no aparece:
+         [OK] CA-n | README.md | ausencia comprobada de <ramas concretas>
+         (verifica el archivo completo; no exige citar una línea inexistente)
        criterio no evaluado                       →  se agrega [PENDIENTE]
 ```
 
-- El control solo baja de `OK` a `PENDIENTE`; nunca sube.
+- El control solo baja de `OK` a `PENDIENTE`; nunca sube. Los hechos negativos
+  deben identificar las referencias concretas y el archivo evaluado; si alguna
+  referencia sigue presente, la ausencia no se acepta. No se infiere cumplimiento
+  general de otras referencias históricas no enumeradas.
+- Si un criterio depende de las reglas documentadas del proyecto, pero
+  `context.rule_sources` no identifica una fuente autoritativa, **se marca
+  PENDIENTE**, aunque el agente cite `project.yaml`. Una regla declarada en
+  configuración no sustituye el documento solicitado.
+- Si el modelo afirma que todo está cumplido pero el verificador corrige un
+  criterio, el resultado final agrega un veredicto global **PENDIENTE** que
+  impide interpretar esa conclusión como autorización de cierre.
 - El plan real de Triage llega al nodo para informarlo tal cual (se omite si no
   cabe en el presupuesto). Los hechos tienen prioridad sobre el plan; un nodo sin
   dependencias no reserva espacio para evidencia que no tiene.
@@ -99,6 +113,21 @@ Lo que se puede verificar con código no se le pide al modelo:
 ```
 
 Si respondés que no en el paso 4, los cambios quedan en la rama sin commitear para revisarlos. Las confirmaciones son locales y no consumen tokens.
+
+### Límite verificable del plan de /do
+
+El planificador recibe las capacidades reales del ejecutor: **una rama de tarea local**
+creada por el framework después de aprobar el plan, edición y pruebas locales,
+revisión del **diff local** (sin PR) y commit local después de un segundo OK humano.
+No debe inventar el nombre de la rama ni delegar operaciones Git al agente.
+
+Si el plan incluye crear/abrir/revisar/aprobar/mergear un Pull Request, hacer
+`git push`, commitear desde un nodo o crear ramas dentro del DAG, el framework
+**rechaza el plan antes de mostrar la aprobación** y permite un único reintento
+de reparación del planificador. Si también falla, termina con error sin crear
+ramas ni modificar archivos. El mismo control se aplica al ejecutar un plan
+inyectado por otro cliente. No se deben presentar acciones remotas como
+ejecutadas ni prometidas cuando el framework no tiene esas herramientas.
 
 Si el pedido no menciona una issue (`T-066`, `M-012` o `#96`) y la política la exige, se pregunta antes de planificar.
 

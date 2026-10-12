@@ -2,6 +2,17 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
+## Correcciones previas al release v0.3.0 — regresiones funcionales T-066
+
+- /do: el planificador conoce las capacidades reales del ejecutor local; no propone crear ni revisar Pull Requests, hacer push ni commitear desde nodos;
+- un control determinístico rechaza objetivos no ejecutables antes de la primera autorización y permite un solo reintento de reparación; funciona también con planes invocados desde otros clientes;
+- prueba de regresión para el plan real rechazado de T-066, con planificación síncrona/asíncrona, corrección y rechazo seguro. Validación funcional pendiente.
+
+- un criterio negativo que exige ausencia de referencias de ramas se valida por lectura completa del documento nombrado por la issue (sin cita de línea inexistente);
+- una regla de proyecto sin `context.rule_sources` autoritativo no puede aprobarse citando sólo `project.yaml`; queda PENDIENTE;
+- ante degradaciones de un criterio, el control agrega un veredicto global PENDIENTE, incluso si la conclusión narrativa del modelo recomienda cerrar la issue;
+- pruebas de regresión sin proveedor y con /task simulado para T-066. Pendiente prueba funcional real.
+
 ## En desarrollo — conexión MCP privada y actualizaciones controladas (`feat/mcp-remote-version-sync`)
 
 - documentación de Secure MCP Tunnel para acceso privado desde ChatGPT sin puerto público;
