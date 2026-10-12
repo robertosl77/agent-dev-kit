@@ -88,6 +88,7 @@ def test_mcp_server_exposes_client_neutral_tools(tmp_path):
                 "agent_dev_kit_workflow_issue",
                 "agent_dev_kit_workflow_fallback",
                 "agent_dev_kit_workflow_cancel",
+                "agent_dev_kit_workflow_resume",
                 "agent_dev_kit_repo_status",
                 "agent_dev_kit_graphs",
                 "agent_dev_kit_workflow_usage",
