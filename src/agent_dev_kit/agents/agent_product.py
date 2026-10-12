@@ -41,7 +41,7 @@ A clear product definition/PRD or functional specification that explains what sh
 
 Limits:
 Do not decide technical architecture or implementation details that belong to technical specialists.
-When planning execution and backlog sequencing is needed, hand off to Agent PMO.
+When a user-facing change needs reviewable user stories and acceptance criteria, hand off to Scrum Master when enabled. For repository issue governance and release follow-up, use Agent PMO.
 """
 
 
