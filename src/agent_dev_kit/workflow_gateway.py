@@ -70,6 +70,15 @@ class WorkflowController:
         if not request.strip():
             raise ValueError("request cannot be empty.")
         self.cleanup()
+        # Exactly one active action workflow may own this worktree.
+        if mode == "act":
+            for ident, existing in self._sessions.items():
+                if existing.mode == "act" and existing.status not in FINISHED:
+                    return {
+                        "status": "blocked",
+                        "reason": "Another action workflow owns the repository worktree.",
+                        "workflow_id": ident,
+                    }
         config = self.gateway.config
         maximum = config.gateway.max_sessions
         if len(self._sessions) + len(self.gateway._conversations) + len(self.gateway._tasks) >= maximum:
@@ -127,8 +136,22 @@ class WorkflowController:
         elif kind == "branch":
             state.phase = "planning"
         elif kind == "commit":
-            assert state.branch is not None
+            assert state.branch is not None and state.plan is not None
             try:
+                # An approval applies to exactly the code that was reviewed.
+                latest = action_review(state.workspace, state.plan, state.branch)
+                if latest["fingerprint"] != state.review["fingerprint"]:
+                    state.review = latest
+                    state.phase = "commit_confirmation"
+                    return self._require(
+                        workflow_id, state, "commit",
+                        "Los archivos cambiaron desde la revisión. ¿Aprobás el nuevo diff?",
+                        details=latest,
+                    )
+                if not latest["diff_complete"]:
+                    state.status, state.phase = "blocked", "blocked"
+                    state.failure = "Diff too large for safe MCP approval; review and commit locally."
+                    return self._snapshot(workflow_id, state)
                 commit_action_branch(
                     state.workspace, self.gateway.config, state.request,
                     branch=state.branch, issue=state.issue,
@@ -154,6 +177,8 @@ class WorkflowController:
 
     def fallback(self, workflow_id: str, approve: bool) -> dict[str, Any]:
         state = self._state(workflow_id)
+        if type(approve) is not bool:
+            raise ValueError("approve must be a boolean.")
         if state.pending_error is None or state.status != "fallback_required":
             raise ValueError("No fallback is pending for this workflow.")
         error = state.pending_error
@@ -303,10 +328,14 @@ class WorkflowController:
                 if not state.review["changed_files"]:
                     state.status, state.phase = "completed", "completed"
                     return self._snapshot(ident, state)
+                if not state.review["diff_complete"]:
+                    state.status, state.phase = "blocked", "blocked"
+                    state.failure = "Diff too large for safe MCP approval; review and commit locally."
+                    return self._snapshot(ident, state)
                 state.phase = "commit_confirmation"
                 return self._require(
                     ident, state, "commit",
-                    "¿Aprobás el commit local de los cambios revisados?",
+                    "¿Aprobás el commit local del diff completo revisado?",
                     details=state.review,
                 )
             if state.phase in FINISHED or state.phase in {
@@ -358,5 +387,6 @@ class WorkflowController:
             "plan": self.gateway._plan_payload(plan),
             "approval": state.pending_decision,
             "review": state.review, "failure": state.failure,
+            "input_required": "issue" if state.phase == "issue_required" else None,
             "fallback": fallback,
         }
