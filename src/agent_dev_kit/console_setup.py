@@ -10,6 +10,9 @@ Decisions applied:
 3. The model is always asked, from the provider's live list. There is no
    preferred model. If the list cannot be fetched, the name can be typed.
 3b. Model tags only show what the provider reports.
+4. A pasted key is cleaned (invisible characters removed) and checked
+   against the provider's documented prefix; if the provider rejects it while
+   listing models, the key can be pasted again (M-081).
 """
 
 from __future__ import annotations
@@ -21,13 +24,34 @@ from typing import Callable, TextIO
 
 from agent_dev_kit.model_catalog import ModelOption, list_models
 from agent_dev_kit.project_config import ProjectAgentDevKitConfig
-from agent_dev_kit.provider_errors import ProviderError, normalize_provider_exception
+from agent_dev_kit.provider_errors import (
+    ProviderAuthenticationError,
+    ProviderError,
+    normalize_provider_exception,
+)
 from agent_dev_kit.provider_registry import BUILTIN_PROVIDERS, ProviderSpec
 
 
 InputFn = Callable[[str], str]
 ModelLister = Callable[[str, "str | None"], list[ModelOption]]
 MAX_ATTEMPTS = 3
+PASTE_HINT = (
+    "Si estás en la PowerShell/CMD clásica, pegá con clic derecho "
+    "(Ctrl+V puede no pegar en la entrada oculta)."
+)
+
+
+def clean_key(raw: str) -> tuple[str, int]:
+    """Key without spaces, quotes or invisible characters, and how many were removed.
+
+    API keys are printable ASCII. Anything else (a control character from
+    Ctrl+V in a classic console, a newline, a non-breaking space) only breaks
+    the request, so it is removed and reported.
+    """
+
+    value = raw.strip().strip("'\"")
+    kept = "".join(char for char in value if "!" <= char <= "~")
+    return kept, len(value) - len(kept)
 
 
 class SetupCancelled(RuntimeError):
@@ -107,7 +131,13 @@ class ConsoleSetup:
         if key is not None:
             credentials.set(chosen, key)
 
-        chosen_model = model.strip() if model else self.choose_model(chosen, key)
+        if model:
+            chosen_model = model.strip()
+        else:
+            key, options = self.list_models_for(spec, key)
+            if key is not None:
+                credentials.set(chosen, key)
+            chosen_model = self.choose_model(chosen, key, options=options)
 
         provider_config = replace(
             config.provider,
@@ -172,11 +202,25 @@ class ConsoleSetup:
             return None
         self._print(f"La key se obtiene en: {spec.key_url}")
         for _ in range(MAX_ATTEMPTS):
-            key = self.secret_fn(f"Pegá tu key de {spec.label} (no se muestra): ").strip()
-            if key:
-                return key
-            self._print("La key no puede quedar vacía.")
-        raise SetupCancelled(f"No se ingresó la key de {spec.label}.")
+            raw = self.secret_fn(f"Pegá tu key de {spec.label} (no se muestra): ")
+            key, removed = clean_key(raw)
+            if not key:
+                self._print("La key no puede quedar vacía. " + PASTE_HINT)
+                continue
+            if removed:
+                self._print(
+                    f"Se quitaron {removed} caracteres invisibles o espacios de la key."
+                )
+            if spec.key_prefixes and not key.startswith(spec.key_prefixes):
+                expected = " o ".join(spec.key_prefixes)
+                self._print(
+                    f"Esa key no parece de {spec.label}: se recibieron {len(key)} "
+                    f"caracteres y debería empezar con {expected}. "
+                    "Puede haberse pegado mal. " + PASTE_HINT
+                )
+                continue
+            return key
+        raise SetupCancelled(f"No se ingresó una key válida de {spec.label}.")
 
     def _ask_fallback_key(self, provider: str) -> str | None:
         spec = self.providers.get(provider)
@@ -190,15 +234,41 @@ class ConsoleSetup:
 
     # ----------------------------------------------------------------- model
 
-    def choose_model(self, provider: str, key: str | None) -> str:
-        options: list[ModelOption] = []
-        try:
-            options = self.model_lister(provider, key)
-        except Exception as exc:  # show the reason and allow typing the name
-            error = exc if isinstance(exc, ProviderError) else normalize_provider_exception(
-                exc, provider=provider
-            )
-            self._print(f"No se pudo obtener la lista de modelos: {error}")
+    def list_models_for(
+        self, spec: ProviderSpec, key: str | None
+    ) -> tuple[str | None, list[ModelOption]]:
+        """Live model list; offers to paste the key again if the provider rejects it."""
+
+        for attempt in range(2):
+            try:
+                return key, self.model_lister(spec.key, key)
+            except Exception as exc:  # show the reason and allow typing the name
+                error = normalize_provider_exception(exc, provider=spec.key)
+                self._print(f"No se pudo obtener la lista de modelos: {error}")
+                if attempt or key is None or not _key_may_be_wrong(error):
+                    return key, []
+                self._print(
+                    "El proveedor rechazó el pedido; suele ser una key mal pegada."
+                )
+                again = self.input_fn("¿Volver a pegar la key? (s/N): ").strip().lower()
+                if again not in {"s", "si", "sí", "y", "yes"}:
+                    return key, []
+                key = self.resolve_key(spec)
+        return key, []
+
+    def choose_model(
+        self,
+        provider: str,
+        key: str | None,
+        *,
+        options: list[ModelOption] | None = None,
+    ) -> str:
+        if options is None:
+            spec = self.providers.get(provider)
+            if spec is None:
+                options = []
+            else:
+                _, options = self.list_models_for(spec, key)
 
         if options:
             self._print("¿Qué modelo?")
@@ -234,3 +304,13 @@ class ConsoleSetup:
 
     def _print(self, text: str) -> None:
         print(text, file=self.out)
+
+
+def _key_may_be_wrong(error: ProviderError) -> bool:
+    if isinstance(error, ProviderAuthenticationError):
+        return True
+    original = error.original
+    status = getattr(original, "status_code", None) or getattr(
+        getattr(original, "response", None), "status_code", None
+    )
+    return status == 400

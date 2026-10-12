@@ -5,8 +5,19 @@ from typing import Any, Callable, Mapping, Protocol
 
 from agent_dev_kit.git_policy import (
     GitPolicyGuard,
+    GitPolicyViolation,
     HumanAuthorization,
 )
+
+
+class RepositoryStateVerifier(Protocol):
+    """Checks the real repository state instead of trusting the caller (M-063)."""
+
+    def branch_exists(self, branch: str) -> bool:
+        ...
+
+    def is_up_to_date(self, branch: str) -> bool:
+        ...
 
 
 class GitMutationExecutor(Protocol):
@@ -38,9 +49,12 @@ class GitMutationGateway:
         self,
         guard: GitPolicyGuard,
         executor: GitMutationExecutor | Callable[[str, Mapping[str, Any]], Any],
+        *,
+        verifier: RepositoryStateVerifier | None = None,
     ) -> None:
         self.guard = guard
         self._executor = executor
+        self._verifier = verifier
 
     def direct_write(
         self,
@@ -68,10 +82,16 @@ class GitMutationGateway:
         *,
         base_branch: str,
         issue_reference: str | None = None,
-        base_is_updated: bool = True,
+        base_is_updated: bool | None = None,
         payload: Mapping[str, Any] | None = None,
         authorization: HumanAuthorization | None = None,
     ) -> GitMutationResult:
+        if base_is_updated is None and self._verifier is not None:
+            if not self._verifier.branch_exists(base_branch):
+                raise GitPolicyViolation(
+                    f"Base branch '{base_branch}' does not exist in the repository."
+                )
+            base_is_updated = self._verifier.is_up_to_date(base_branch)
         self.guard.validate_task_branch_creation(
             branch,
             base_branch=base_branch,

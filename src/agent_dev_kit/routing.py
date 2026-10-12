@@ -5,13 +5,14 @@ DEFAULT_CAPABILITY_GRAPH: dict[str, tuple[str, ...]] = {
     "triage": (
         "product", "pmo", "architecture", "ux_ui", "backend", "frontend",
         "database", "security", "testing", "reviewer", "documentation",
-        "devops", "performance", "observability", "data",
+        "devops", "performance", "observability", "data", "scrum_master",
     ),
     "product": (
         "pmo", "architecture", "ux_ui", "security", "observability",
         "documentation", "triage",
     ),
     "pmo": ("product", "architecture", "reviewer", "documentation", "triage"),
+    "scrum_master": ("product", "pmo", "ux_ui", "testing", "triage"),
     "architecture": (
         "backend", "frontend", "database", "security", "devops",
         "performance", "observability", "data", "testing",

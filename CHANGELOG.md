@@ -2,6 +2,145 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
+## [0.3.0] — agentes con herramientas: consultor y acción
+
+Issue paraguas: M-078 (#121).
+
+### Agente Scrum Master (incorporación en rama de trabajo; validación pendiente)
+
+- nuevo agente `scrum_master` (Scrum Master con tareas operativas de Product Owner), habilitable por proyecto sin afectar instalaciones que no lo incluyan;
+- solicitudes de cambio funcional producen historias de usuario breves y criterios de aceptación verificables para aprobación del usuario, incluso en cambios pequeños;
+- DAG con nodo inicial Scrum Master y dependencia obligatoria de los demás nodos; `/task` y `/do` exigen conformidad humana antes de continuar; en `/do` se revisa en modo solo lectura antes de crear una rama;
+- Scrum incremental proporcional: backlog, Sprint Goal, Sprint Backlog, Increment y Definition of Done solamente cuando corresponda;
+- GitHub Issues: propuestas sin escrituras automáticas ni atribuir aprobaciones inexistentes;
+- pruebas agregadas para enrutamiento, compatibilidad, dependencias y barrera humana. **Pendiente de ejecución y validación integral antes del merge a `develop`**.
+
+### Herramientas y modos (M-076, #119)
+
+- herramientas incluidas para los agentes: `list_files`, `read_file`, `search`,
+  `git_status`, `git_branches`, `git_log`, `git_diff`, `read_issue` (todos los modos) y
+  `write_file`, `replace_in_file`, `run_command` (solo `/do`);
+- sandbox del framework: paths dentro del proyecto, sin `.git/`, sin escribir
+  `.agent-dev-kit/`, sin leer ni escribir `.env*` (salvo `.env.example`);
+- comandos: `workspace.test_commands` corren sin preguntar,
+  `workspace.allowed_commands` preguntan, el resto se rechaza;
+- `read_issue`: anónimo en repos públicos; token de solo lectura pedido (oculto,
+  no se guarda) para repos privados o cupo agotado;
+- consola: `/plan`, `/task` (lee el repo antes de proponer) y `/do`;
+  `agent-dev-kit task --mode plan|propose|act`;
+- `/do`: controles sin costo previos (repo limpio, issue, `develop` igual a
+  `origin/develop`), OK al plan mostrando agentes/nodos/modelo, rama local
+  `<kind>/<issue>-<slug>` desde `develop`, resumen con diff, comandos y consumo,
+  OK al commit local. Nunca hace push;
+- permisos por agente (`access: read_only|read_write` en `agents/<x>.yaml`).
+
+### Política Git (M-063, #104)
+
+- `base_is_updated` pasa a `None` por defecto: sin verificación real del repo,
+  la creación de rama se rechaza cuando la política exige base actualizada;
+- `RepositoryStateVerifier` y `LocalRepositoryVerifier` verifican la rama base
+  contra `origin`;
+- `ToolRegistry.register()` rechaza `effect="git_mutation"` y advierte sobre
+  tools con nombre de mutación git; `describe()` y `status()` las exponen.
+
+### Consumo (M-036, #64)
+
+- los tres proveedores devuelven tokens de entrada/salida (y razonamiento o
+  caché cuando el proveedor los informa) en `ProviderRunResult.usage`;
+- la traza registra proveedor, modelo y consumo por etapa (planner y cada nodo);
+- la consola muestra el consumo al final de cada uso;
+- `pricing` opcional en `project.yaml` para estimar USD (sin lista de precios
+  propia que se desactualice).
+
+### Log y análisis de grafos (M-068, #109)
+
+- cada uso registra `run_id`, `recorded_at`, modo, `intake_key` (clave
+  determinística previa a Triage) y herramientas usadas;
+- `agent-dev-kit graphs .` lista los usos; `agent-dev-kit candidates .` resume
+  agentes convocados, peso de la planificación y candidatos de mejora
+  (incluye `inconsistent_classification`). Solo propone; no cambia el routing.
+
+### Calidad de /do (M-079, primera prueba real con T-066)
+
+- cada nodo recibe el **pedido original de la persona** como fuente de verdad
+  (además del resumen de Triage, que perdía requisitos explícitos);
+- sin `project.language`, los agentes responden en el idioma del pedido;
+- regla explícita: no inventar personas, roles, procesos, reglas ni ejemplos;
+- en `/do` el agente debe releer lo que cambió y cerrar con un checklist
+  `[OK]` / `[PENDIENTE]` por requisito, con evidencia (archivo y línea);
+- nombre de rama sin acentos rotos (`seccion`, no `secci-n`) y sin otras
+  referencias de issue en el slug;
+- Anthropic: *prompt caching* de instrucciones, herramientas y conversación
+  (opción `prompt_caching`, activa por defecto); el consumo muestra los tokens
+  de caché y el costo los cotiza aparte (`cached_input_per_mtok`, por defecto
+  10% de la entrada);
+- un error del proveedor ya no cierra la sesión; un plan sin decisiones de
+  Triage pasa por el intento de reparación.
+
+### Key por consola (M-081, #124)
+
+- la key pegada se limpia de espacios, comillas y caracteres invisibles (p. ej.
+  el `Ctrl+V` de la PowerShell clásica) y se avisa cuántos se quitaron;
+- se controla el prefijo documentado (`sk-ant-`, `sk-`); si no coincide se
+  vuelve a pedir con la pista "pegá con clic derecho";
+- si el listado de modelos falla por 400/401, se ofrece volver a pegar la key;
+- los errores genéricos del proveedor muestran el cuerpo de la respuesta
+  (antes solo `Error code: 400`).
+
+### Planner: mapa riesgo → agente y reparación guiada (M-083, #126)
+
+- el prompt de planificación incluye el mapa `risk_flag -> agente requerido`
+  (generado desde `RISK_REQUIRED_AGENTS`, marcando `(disabled)`) y una regla de
+  autocontrol: flag sin su agente seleccionado = quitar el flag;
+- ante `Risk '<x>' requires selected agent '<y>'`, la reparación explica las dos
+  salidas válidas (quitar el flag, o seleccionar el agente **y** agregarle un
+  nodo); sigue siendo un solo reintento;
+- las salidas rechazadas del planner se guardan en
+  `.agent-dev-kit/runtime/planner-rejections.jsonl` (sin el pedido en claro) y
+  el error final indica la ruta.
+
+### Verificación de los agentes (M-084, #127)
+
+- cada nodo recibe el plan real de Triage (agentes seleccionados/omitidos con
+  motivo y nodos) para informarlo sin reconstruirlo; se omite si no entra en
+  el presupuesto de contexto;
+- nueva herramienta `git_branches` (ramas locales y de `origin` según el último
+  fetch); `git_log` muestra fecha y autor;
+- reglas de verificación en `/task` y `/do`: validar contra la fuente exacta que
+  nombra cada criterio, verificar nombres concretos contra el repo, distinguir
+  política declarada de estado real, y nunca `[OK]` sin evidencia.
+
+### Controles en código (M-085, #128)
+
+- `/task` avisa y pregunta si la rama actual no es la de integración (antes
+  de gastar);
+- los nodos del DAG no reciben herramientas `transfer_to_*`;
+- `context.rule_sources` en `project.yaml`: documento del repo que manda en
+  cada tema; el bloque `git_workflow` inyectado se presenta como subconjunto
+  aplicado en código, no como estado de GitHub;
+- hoja de hechos (código, sin tokens) para el nodo: rama, ramas conocidas,
+  fuentes de reglas, issue ya leída, criterios de aceptación extraídos y ramas
+  escritas en archivos que no existen en git;
+- veredicto verificado: `[OK] CA-n | path:línea | "texto"`; cita falsa, sin
+  cita o criterio de reglas que no cita su fuente pasan a `[PENDIENTE]`;
+  criterios omitidos se agregan como `[PENDIENTE]`;
+- el nodo final sabe que su salida es la respuesta; motivos del planner ≤ 12
+  palabras.
+
+### Otros
+
+- M-075 (#118): se quita la etiqueta `[piensa]` del menú de modelos;
+- M-077 (#120): `project.language` (y override por agente) fija el idioma de
+  respuesta sin traducir código, claves ni enums;
+- ciclo de agente: hasta 25 turnos por nodo para permitir el uso de herramientas.
+
+### Cambios de comportamiento
+
+- `GitPolicyGuard.validate_task_branch_creation` y
+  `GitMutationGateway.create_task_branch` ya no asumen base actualizada.
+- En `run` y `task`, los agentes ahora leen el repo con herramientas. Esto
+  mejora las respuestas, pero consume más tokens.
+
 ## [0.2.0] — multi-proveedor por consola
 
 Issue: M-073 (#114), subtarea de M-056 (#97).

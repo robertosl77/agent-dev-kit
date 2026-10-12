@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Mapping
 
+from agent_dev_kit.usage import UsageRecord
 from agent_dev_kit.providers.tool_loop import (
     LoopAgent,
     ModelTurn,
@@ -112,6 +113,7 @@ class GeminiProvider(ToolLoopProvider):
             tool_calls=calls,
             raw=content,
             truncated=str(finish).upper().endswith("MAX_TOKENS"),
+            usage=_gemini_usage(response, spec.model),
         )
 
     def _append_assistant(self, transcript: list[Any], turn: ModelTurn) -> None:
@@ -141,6 +143,21 @@ class GeminiProvider(ToolLoopProvider):
                 ],
             )
         )
+
+
+def _gemini_usage(response: Any, model: str) -> UsageRecord | None:
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None:
+        return None
+    thoughts = int(getattr(meta, "thoughts_token_count", 0) or 0)
+    return UsageRecord(
+        provider="gemini",
+        model=model,
+        input_tokens=int(getattr(meta, "prompt_token_count", 0) or 0),
+        output_tokens=int(getattr(meta, "candidates_token_count", 0) or 0) + thoughts,
+        reasoning_tokens=thoughts,
+        cached_input_tokens=int(getattr(meta, "cached_content_token_count", 0) or 0),
+    )
 
 
 def gemini_key_from_env() -> str | None:

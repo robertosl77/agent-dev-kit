@@ -50,6 +50,7 @@ agents:
   enabled:
     - triage
     - pmo
+    - scrum_master
     - architecture
     - ux_ui
     - backend
