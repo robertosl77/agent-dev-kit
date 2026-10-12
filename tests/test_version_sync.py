@@ -121,3 +121,50 @@ def test_update_rejects_untrusted_source_and_pins(monkeypatch):
     bad2 = sync.UpdatePreview("0.3.0", TAG, "main", sync.GITHUB_HTTPS, False)
     with pytest.raises(ValueError, match="Unsafe"):
         sync.apply_update(bad2, confirmed=True)
+
+
+def test_cli_check_does_not_install_or_require_project(monkeypatch, capsys):
+    from agent_dev_kit import cli
+
+    preview = sync.UpdatePreview(
+        installed="0.3.0", tag=TAG, commit=SHA, source=sync.GITHUB_HTTPS,
+        editable=False,
+    )
+    monkeypatch.setattr(sync, "preview_update", lambda *a, **k: preview)
+    monkeypatch.setattr(sync, "apply_update", lambda *a, **k: pytest.fail("applied"))
+    assert cli.main(["update", "--tag", TAG]) == 0
+    output = capsys.readouterr().out
+    assert SHA in output
+    assert "no se modificó" in output
+
+
+def test_cli_apply_is_blocked_without_yes(monkeypatch, capsys):
+    from agent_dev_kit import cli
+
+    preview = sync.UpdatePreview(
+        installed="0.3.0", tag=TAG, commit=SHA, source=sync.GITHUB_HTTPS,
+        editable=False,
+    )
+    monkeypatch.setattr(sync, "preview_update", lambda *a, **k: preview)
+    monkeypatch.setattr(sync.subprocess, "run", lambda *a, **k: pytest.fail("pip ran"))
+    assert cli.main(["update", "--tag", TAG, "--apply"]) == 1
+    assert "explicit --yes" in capsys.readouterr().err
+
+
+def test_cli_apply_installs_after_yes(monkeypatch, capsys):
+    from agent_dev_kit import cli
+
+    preview = sync.UpdatePreview(
+        installed="0.3.0", tag=TAG, commit=SHA, source=sync.GITHUB_HTTPS,
+        editable=False,
+    )
+    observed = []
+    monkeypatch.setattr(sync, "preview_update", lambda *a, **k: preview)
+    monkeypatch.setattr(
+        sync, "apply_update",
+        lambda item, **kwargs: observed.append((item, kwargs)),
+    )
+    assert cli.main(["update", "--tag", TAG, "--apply", "--yes"]) == 0
+    assert observed == [(
+        preview, {"confirmed": True, "allow_downgrade": False},
+    )]
