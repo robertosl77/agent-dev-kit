@@ -277,6 +277,9 @@ def test_plan_approval_survives_restart_but_old_nonce_is_revoked(setup_repo):
     old_nonce = first["approval"]["id"]
     restarted = AgentDevKitGateway(root, registry=gateway.registry)
     restarted.workflow.allow_actions = True
+    competing = restarted.workflow.start(REQUEST, mode="act")
+    assert competing["status"] == "blocked"
+    assert "checkpoint" in competing["reason"]
     loaded = restarted.workflow.status(first["workflow_id"])
     assert loaded["status"] == "approval_required"
     assert loaded["approval"]["kind"] == "plan"
@@ -398,3 +401,28 @@ def test_allowed_command_is_deferred_until_separate_human_consent(setup_repo):
         event.get("command") == "git status --short" and event["ok"]
         for event in restarted.workflow._sessions[response["workflow_id"]].workspace.events
     )
+
+
+def test_checkpoint_is_outside_consuming_worktree(setup_repo):
+    gateway, _, root = setup_repo
+    first = gateway.workflow.start(REQUEST, mode="plan")
+    path = gateway.workflow._store._path(first["workflow_id"])
+    assert path.is_file()
+    assert root.resolve() not in path.resolve().parents
+    assert git(root, "status", "--porcelain") == ""
+
+
+def test_command_checkpoint_crash_requires_manual_review(setup_repo):
+    gateway, _, root = setup_repo
+    gateway.workflow.allow_actions = True
+    first = gateway.workflow.start(REQUEST, mode="act")
+    state = gateway.workflow._sessions[first["workflow_id"]]
+    state.status, state.phase = "executing_command", "command_execution"
+    gateway.workflow.status(first["workflow_id"])
+    restored = AgentDevKitGateway(root, registry=gateway.registry)
+    restored.workflow.allow_actions = True
+    loaded = restored.workflow.status(first["workflow_id"])
+    assert loaded["status"] == "interrupted"
+    result = restored.workflow.resume(first["workflow_id"], True)
+    assert result["status"] == "manual_review_required"
+    assert git(root, "branch", "--show-current") == "develop"
