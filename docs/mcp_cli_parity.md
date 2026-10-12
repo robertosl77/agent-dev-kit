@@ -14,6 +14,7 @@ La interfaz anterior (`agent_dev_kit_task`, chat y fallback de chat/tarea) se co
 - `agent_dev_kit_workflow_issue(workflow_id, issue)`: proporcionar referencia de issue cuando la política lo exige.
 - `agent_dev_kit_workflow_fallback(workflow_id, approve)`: decidir fallback específico de esta tarea.
 - `agent_dev_kit_workflow_cancel(workflow_id)`: terminar el workflow, sin descartar cambios locales.
+- `agent_dev_kit_workflow_resume(workflow_id, approve)`: reintento explícito de fases seguras luego de una interrupción; nunca vuelve a ejecutar automáticamente una escritura interrumpida.
 - `agent_dev_kit_workflow_usage(workflow_id)`: consumo por llamada y costo estimado si hay precios configurados.
 - `agent_dev_kit_repo_status()`: rama actual, cambios y resumen de diff.
 - `agent_dev_kit_graphs(limit)`: trazas históricas resumidas.
@@ -39,17 +40,20 @@ agent-dev-kit mcp . --allow-actions
 
 Para HTTP, conservar el bind local (`127.0.0.1`). Un cliente externo exige una frontera autenticada de confianza (túnel/proxy configurado correctamente). El identificador de decisión evita reusar una aprobación, pero **no prueba por sí mismo la identidad del usuario**: el host autenticado debe obtener consentimiento humano explícito para cada llamada de aprobación.
 
-Los comandos de tests automáticos declarados por el proyecto siguen funcionando. Los comandos que requieren confirmación individual en `workspace.allowed_commands` se **rechazan** en el controlador MCP hasta contar con un protocolo confiable de autorización de ejecución en mitad de un nodo. No se otorgan permisos permanentes. Los comandos permitidos dejan de ejecutarse con `shell=True`; se interpretan en argv, sin operadores de shell.
+Los comandos de tests automáticos declarados por el proyecto siguen funcionando. Cuando un agente solicita un comando declarado en `workspace.allowed_commands`, el comando **no se ejecuta durante la llamada al modelo**. Se registra como pendiente (sin duplicados) y se devuelve al modelo el aviso de que no se ejecutó. Al terminar el DAG, el Gateway presenta cada solicitud por separado con `approval.kind=command`. La persona autoriza o rechaza **el comando exacto y el directorio de trabajo**; si se autoriza, se ejecuta una sola vez. Una denegación, un error o un exit code distinto de cero bloquea el commit. El modelo no recibe retroactivamente la salida del comando; el resultado queda en la evidencia de revisión y la persona debe revisar la validación. No existen permisos permanentes. El comando se ejecuta con `shell=False`, sin operadores de shell.
+
+**Recuperación (etapa 2).** Los checkpoints JSON privados y atómicos se guardan **fuera del repositorio consumidor**, en `%LOCALAPPDATA%/agent-dev-kit/mcp-workflows/<hash-del-proyecto>` en Windows o `$XDG_STATE_HOME/agent-dev-kit/mcp-workflows/<hash-del-proyecto>` (por defecto `~/.local/state`) en Linux/macOS. Se puede definir `AGENT_DEV_KIT_STATE_HOME` para elegir otro directorio base. Incluyen el plan, estados y salidas de nodos terminados, progreso/consumo, solicitudes de comandos, aprobaciones pendientes y revisión del diff; son datos potencialmente sensibles, **no deben publicarse**. No se escriben claves de proveedores. Se mantienen por el TTL configurado para el Gateway; al reabrir una sesión, los identificadores de aprobación anteriores se invalidan y se generan otros nuevos. Una interrupción en un nodo de solo lectura exige `workflow_resume(approve=true)`; se retoman los nodos terminados del DAG y se reintenta solo lo pendiente. Una interrupción durante creación de rama, comando, escritura o commit **no se reproduce**, y requiere revisión local manual. Solo un proceso servidor debe usar un repositorio; no hay coordinación distribuida entre procesos.
 
 ## Limitaciones de esta etapa
 
-- El estado de workflow está en memoria (TTL del Gateway). Un reinicio pierde la capacidad de reanudar tareas pendientes.
-- Solo se permite **una** tarea de acción activa por proceso MCP/Workspace; no hay lock distribuido entre procesos diferentes.
+- Hay recuperación durable de checkpoints y permisos pendientes, pero **no** continuación transparente de una llamada del modelo interrumpida ni repetición automática de acciones. Los workflows con escrituras parciales requieren revisión manual.
+- Solo se permite **una** tarea de acción activa por repositorio/servidor, y se bloquea una nueva tarea cuando existe un checkpoint de acción sin cerrar. No hay lock distribuido entre procesos diferentes.
 - Sin escritura automática de GitHub Issues, push, creación remota de PR ni merges.
 - Los diffs de más de 50.000 caracteres y archivos nuevos binarios no se pueden aprobar por MCP y requieren revisión/commit local.
 - El contrato existente `agent_dev_kit_task` sigue siendo histórico; usar `workflow_start` para paridad.
 - `read_issue` usa anónimo si el repo es público; la solicitud interactiva de un token para repos privados todavía pertenece a CLI.
-- Persistencia de estados y autorizaciones de comandos deben resolverse antes de declarar **paridad total**.
+- La autorización de comandos MCP se ejecuta **después** de finalizar el nodo que la pidió, no dentro del mismo turno del modelo; falta integrar una continuación que consuma el resultado de manera conversacional antes de declarar **paridad total**.
+- Falta validar los checkpoints y permisos con el MCP real en Windows, y definir la integración de identidad de usuario/capacidades remotas con un servidor autenticado.
 
 ## Validación
 
