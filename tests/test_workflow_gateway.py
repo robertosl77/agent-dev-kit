@@ -95,6 +95,8 @@ def setup_repo(tmp_path):
     d.mkdir()
     (d / "project.yaml").write_text("""project:
   name: MCPDemo
+workspace:
+  allowed_commands: [git status]
 provider:
   name: fake
 agents:
