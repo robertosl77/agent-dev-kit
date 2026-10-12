@@ -82,6 +82,15 @@ def test_mcp_server_exposes_client_neutral_tools(tmp_path):
                 "agent_dev_kit_task",
                 "agent_dev_kit_task_fallback",
                 "agent_dev_kit_task_status",
+                "agent_dev_kit_workflow_start",
+                "agent_dev_kit_workflow_status",
+                "agent_dev_kit_workflow_decide",
+                "agent_dev_kit_workflow_issue",
+                "agent_dev_kit_workflow_fallback",
+                "agent_dev_kit_workflow_cancel",
+                "agent_dev_kit_repo_status",
+                "agent_dev_kit_graphs",
+                "agent_dev_kit_candidates",
             }
 
             result = await client.call_tool(
