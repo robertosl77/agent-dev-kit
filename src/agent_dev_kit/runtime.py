@@ -35,6 +35,8 @@ from agent_dev_kit.task_plan import (
     TaskPlanError,
     build_planning_prompt,
     render_risk_agent_map,
+    validate_act_plan_capabilities,
+    ACT_CAPABILITY_RULES,
 )
 from agent_dev_kit.task_facts import verdict_format_note
 
@@ -161,6 +163,7 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
             project_policies=self.config.orchestration.policies,
+            mode=self.mode,
         )
         self._ensure_prompt_budget(prompt, stage="planning")
         self._ensure_provider_call_budget(1, stage="planning")
@@ -248,6 +251,7 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
             project_policies=self.config.orchestration.policies,
+            mode=self.mode,
         )
         self._ensure_prompt_budget(prompt, stage="planning")
         self._ensure_provider_call_budget(1, stage="planning")
@@ -359,6 +363,8 @@ class DevAgentKit:
             request=request,
             project_policies=self.config.orchestration.policies,
         )
+        if self.mode == "act":
+            validate_act_plan_capabilities(plan)
         return plan
 
     @staticmethod
@@ -448,6 +454,7 @@ class DevAgentKit:
             + ", ".join(key for key in self.agents if key != "triage")
             + ".\n\n"
             + self._gate_repair_guidance(error)
+            + (ACT_CAPABILITY_RULES + "\n" if self.mode == "act" else "")
             + "Previous output:\n"
         )
         available = budget - len(fixed)
@@ -623,6 +630,8 @@ class DevAgentKit:
 
     def _prepare_plan_execution(self, plan: TaskPlan) -> None:
         plan.validate_structure()
+        if self.mode == "act":
+            validate_act_plan_capabilities(plan)
         plan.validate_orchestration_policy(
             self.agents.keys(),
             request=plan.request,
