@@ -492,6 +492,7 @@ class WorkflowController:
                 assert state.plan is not None
                 state.plan.facts = prepare_task_facts(state.workspace, config, state.request)
                 state.workspace.bind_trace(state.plan.trace)
+                state.plan.on_checkpoint = lambda _: self._persist(ident, state)
                 if state.plan.requires_story_approval:
                     state.status = "executing_intake"
                     self._persist(ident, state)
@@ -528,6 +529,7 @@ class WorkflowController:
                 state.status = "executing"
                 self._persist(ident, state)
                 state.workspace.bind_trace(state.plan.trace)
+                state.plan.on_checkpoint = lambda _: self._persist(ident, state)
                 state.plan.facts = prepare_task_facts(state.workspace, config, state.request)
                 state.runtime.kit.execute_plan_sync(state.plan)
                 if state.mode == "act":
