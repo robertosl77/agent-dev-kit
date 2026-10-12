@@ -131,7 +131,7 @@ class AgentDevKitGateway:
                 "modes": ["plan", "propose", "act"],
                 "actions_enabled": self.workflow.allow_actions,
                 "approval_scoped_per_stage": True,
-                "recovery_after_restart": False,
+                "recovery_after_restart": True,
             },
             "session_ttl_seconds": self.config.gateway.session_ttl_seconds,
             "max_sessions": self.config.gateway.max_sessions,

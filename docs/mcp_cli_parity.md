@@ -1,4 +1,4 @@
-# Paridad CLI/MCP — desarrollo en `feat/mcp-cli-parity`
+# Paridad CLI/MCP — integrado en `develop` (todavía no en `main`)
 
 ## Arquitectura
 
@@ -58,7 +58,7 @@ Los comandos de tests automáticos declarados por el proyecto siguen funcionando
 ## Validación
 
 ```bash
-git switch feat/mcp-cli-parity
+git switch develop
 git pull
 python -m pip install -e ".[dev]"
 pytest -q
