@@ -166,6 +166,19 @@ def run_propose(
         runtime.workspace.bind_trace(plan.trace)
     if runtime.workspace is not None:
         plan.facts = _facts(runtime.workspace, runtime.project_config, request)
+    if plan.requires_story_approval:
+        runtime.run_with_fallback_sync(
+            lambda kit: kit.execute_plan_sync(plan, intake_only=True),
+            confirm_switch=confirm_switch,
+        )
+        for node in plan.nodes:
+            if node.agent == "scrum_master":
+                io.say(f"Historia de usuario y criterios propuestos:\n{node.output or ''}")
+        if not io.confirm("¿Confirmás la historia de usuario y sus criterios?"):
+            runtime.kit.record_story_rejected(plan)
+            io.say("Historia no aprobada. Reformulá el pedido; no se ejecutaron otros agentes.")
+            return plan
+        plan.story_approved = True
     result = runtime.run_with_fallback_sync(
         lambda kit: kit.execute_plan_sync(plan),
         confirm_switch=confirm_switch,
@@ -237,6 +250,24 @@ def run_act(
         act_runtime.kit.record_plan_only(plan)
         io.say("Plan descartado. No se tocó nada.")
         return ActOutcome(status="plan_rejected", plan=plan)
+
+    # Read-only functional intake BEFORE branch creation or write-capable agents.
+    if plan.requires_story_approval:
+        preview = act_runtime.with_mode("propose")
+        workspace.bind_trace(plan.trace)
+        plan.facts = _facts(workspace, config, request)
+        preview.run_with_fallback_sync(
+            lambda kit: kit.execute_plan_sync(plan, intake_only=True),
+            confirm_switch=confirm_switch,
+        )
+        for node in plan.nodes:
+            if node.agent == "scrum_master":
+                io.say(f"Historia de usuario y criterios propuestos:\n{node.output or ''}")
+        if not io.confirm("¿Confirmás la historia de usuario y sus criterios?"):
+            act_runtime.kit.record_story_rejected(plan)
+            io.say("Historia no aprobada. No se creó rama ni se modificaron archivos.")
+            return ActOutcome(status="story_rejected", plan=plan)
+        plan.story_approved = True
 
     # Local task branch from the integration branch, validated by the policy.
     branch = gateway.guard.task_branch_name(

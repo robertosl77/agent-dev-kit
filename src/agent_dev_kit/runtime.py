@@ -516,8 +516,9 @@ class DevAgentKit:
         plan: TaskPlan,
         *,
         session: Any | None = None,
+        intake_only: bool = False,
     ) -> TaskPlan:
-        """Execute ready DAG nodes within deterministic hard budgets."""
+        """Execute DAG nodes; pause for human acceptance after story intake."""
 
         try:
             self._prepare_plan_execution(plan)
@@ -532,8 +533,24 @@ class DevAgentKit:
             self._persist_trace(plan, "failed")
             raise
 
+        if plan.requires_story_approval and not intake_only:
+            if not plan.story_approved or any(
+                node.status != "completed"
+                for node in plan.nodes if node.agent == "scrum_master"
+            ):
+                raise TaskPlanError(
+                    "Scrum Master story requires explicit human approval before execution."
+                )
+
         while not plan.is_complete:
             ready = plan.ready_nodes()
+            if intake_only:
+                ready = [node for node in ready if node.agent == "scrum_master"]
+                if not ready:
+                    plan.execution_status = "awaiting_story_approval"
+                    if plan.trace is not None:
+                        plan.trace.status = "awaiting_story_approval"
+                    return plan
             if not ready:
                 plan.execution_status = "failed"
                 self._persist_trace(plan, "failed")
@@ -554,8 +571,9 @@ class DevAgentKit:
         plan: TaskPlan,
         *,
         session: Any | None = None,
+        intake_only: bool = False,
     ) -> TaskPlan:
-        """Async provider execution with deterministic hard budgets."""
+        """Async provider execution with the same story-approval barrier."""
 
         try:
             self._prepare_plan_execution(plan)
@@ -570,8 +588,24 @@ class DevAgentKit:
             self._persist_trace(plan, "failed")
             raise
 
+        if plan.requires_story_approval and not intake_only:
+            if not plan.story_approved or any(
+                node.status != "completed"
+                for node in plan.nodes if node.agent == "scrum_master"
+            ):
+                raise TaskPlanError(
+                    "Scrum Master story requires explicit human approval before execution."
+                )
+
         while not plan.is_complete:
             ready = plan.ready_nodes()
+            if intake_only:
+                ready = [node for node in ready if node.agent == "scrum_master"]
+                if not ready:
+                    plan.execution_status = "awaiting_story_approval"
+                    if plan.trace is not None:
+                        plan.trace.status = "awaiting_story_approval"
+                    return plan
             if not ready:
                 plan.execution_status = "failed"
                 self._persist_trace(plan, "failed")
@@ -1121,6 +1155,12 @@ class DevAgentKit:
             recorded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             run_id=uuid4().hex[:12],
         )
+
+    def record_story_rejected(self, plan: TaskPlan) -> None:
+        """Record rejected intake without executing any dependent specialists."""
+
+        plan.execution_status = "story_rejected"
+        self._persist_trace(plan, "story_rejected")
 
     def record_plan_only(self, plan: TaskPlan) -> None:
         """Persist the trace of a /plan run (planning without execution)."""

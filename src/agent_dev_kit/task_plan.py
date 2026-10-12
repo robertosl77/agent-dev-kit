@@ -5,6 +5,7 @@ from typing import Any, Iterable, Mapping
 from agent_dev_kit.planner_contract import planner_payload_to_mapping
 from agent_dev_kit.orchestration_policy import (
     RISK_REQUIRED_AGENTS,
+    RiskFlag,
     ProjectRoutingPolicy,
     coerce_durable_artifact,
     coerce_risk_flag,
@@ -64,7 +65,12 @@ class TaskPlan:
     node_attempts: dict[str, int] = field(default_factory=dict)
     calls_avoided_by_reuse: int = 0
     execution_status: str = "planned"
+    story_approved: bool = False
     facts: Any = None  # task_facts.TaskFacts, resolved in code before nodes (M-085)
+
+    @property
+    def requires_story_approval(self) -> bool:
+        return any(node.agent == "scrum_master" for node in self.nodes)
 
     def final_nodes(self) -> list[TaskNode]:
         """Nodes no other node depends on: their output goes to the person."""
@@ -290,7 +296,14 @@ class TaskPlan:
         if self.profile is None:
             raise TaskPlanError("Task profile is required.")
 
+        enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
         independent = preclassify_request(request or self.request)
+        # Opt-in compatibility: older projects need not enable a new role.
+        if "scrum_master" not in enabled:
+            independent = tuple(
+                flag for flag in independent
+                if flag != RiskFlag.USER_STORY_VALIDATION.value
+            )
         merged_risks = tuple(
             dict.fromkeys((*self.profile.risk_flags, *independent))
         )
@@ -311,9 +324,6 @@ class TaskPlan:
         self.policy_activations = evaluation.activated_policy_ids
         self.policy_required_agents = evaluation.required_agents
 
-        enabled = tuple(
-            normalize_agent_key(item) for item in enabled_agents
-        )
         expected = {item for item in enabled if item != "triage"}
         actual = {item.agent for item in self.agent_decisions}
         missing_decisions = expected - actual
@@ -332,6 +342,30 @@ class TaskPlan:
             )
         except ValueError as exc:
             raise TaskPlanError(str(exc)) from exc
+
+        # The story review must be a root and precede every other DAG node.
+        story_nodes = [node for node in self.nodes if node.agent == "scrum_master"]
+        if story_nodes:
+            if len(story_nodes) != 1 or story_nodes[0].depends_on:
+                raise TaskPlanError(
+                    "Scrum Master intake must be one root node without dependencies."
+                )
+            root_id = story_nodes[0].id
+            by_id = {node.id: node for node in self.nodes}
+
+            def depends_on_story(node_id: str) -> bool:
+                node = by_id[node_id]
+                return root_id in node.depends_on or any(
+                    depends_on_story(dep) for dep in node.depends_on
+                )
+
+            if any(
+                not depends_on_story(node.id)
+                for node in self.nodes if node.id != root_id
+            ):
+                raise TaskPlanError(
+                    "Every node after Scrum Master must depend on its story intake."
+                )
 
         by_agent = {item.agent: item for item in self.agent_decisions}
         required_disabled = set(self.required_disabled_agents)
@@ -650,11 +684,21 @@ Rules:
 - If a disabled specialist is materially required, add it to
   required_disabled_agents and do not assign its work elsewhere.
 - Risk flags are material gates, not generic labels. Canonical flags:
-  functional_ambiguity, backlog_coordination, cross_layer, ux_change,
+  functional_ambiguity, user_story_validation, backlog_coordination, cross_layer, ux_change,
   backend_change, frontend_change, persistence_change, security_surface,
   behavior_regression, technical_review, deployment_change,
   performance_risk, runtime_reliability, analytics_data, auth_change,
   schema_change, public_api_change, sensitive_data.
+- For new or changed user-facing capabilities, even one form option, set
+  user_story_validation and select scrum_master when enabled. The story needs
+  clear acceptance criteria and explicit user approval BEFORE implementation.
+- When scrum_master is selected, make it exactly ONE root node without
+  dependencies, and make EVERY other node depend on it transitively.
+  The console stops after that root for human review.
+- Do not select scrum_master for purely technical fixes without changed
+  functional intent. Avoid mandatory sprints for tiny requests.
+- Scrum Master may draft GitHub issue proposals but cannot write issues
+  without authorization and an available approved integration.
 - A declared risk flag requires its responsible enabled specialist, selected
   AND present in nodes. Map (risk flag -> required agents):
 {risk_lines}
