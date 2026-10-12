@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, fields
-from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import time
@@ -19,7 +19,6 @@ from agent_dev_kit.task_plan import TaskNode, TaskPlan
 
 
 VERSION = 1
-CHECKPOINT_DIR = ".agent-dev-kit/runtime/mcp-workflows"
 
 
 def encode_plan(plan: TaskPlan | None) -> dict[str, Any] | None:
@@ -104,9 +103,18 @@ def decode_plan(payload: dict[str, Any] | None) -> TaskPlan | None:
 
 class WorkflowCheckpointStore:
     def __init__(self, root: Path):
-        self.directory = (Path(root).resolve() / CHECKPOINT_DIR).resolve()
-        if self.directory != (Path(root).resolve() / CHECKPOINT_DIR):
-            raise ValueError("Workflow checkpoint directory must not be symlinked.")
+        # Never create an untracked file inside the consumer's Git checkout.
+        # Even .agent-dev-kit/runtime may be unignored in arbitrary projects.
+        location = os.environ.get("AGENT_DEV_KIT_STATE_HOME")
+        if not location:
+            if os.name == "nt":
+                location = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+            else:
+                location = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+        project_key = sha256(
+            os.fsencode(str(Path(root).resolve()))
+        ).hexdigest()[:32]
+        self.directory = Path(location).expanduser().resolve() / "agent-dev-kit" / "mcp-workflows" / project_key
 
     def _path(self, ident: str) -> Path:
         if not ident.startswith("workflow_") or len(ident) != 41:
