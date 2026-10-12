@@ -117,6 +117,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable gated MCP /do on this trusted server (off by default).",
     )
 
+    update = subparsers.add_parser(
+        "update",
+        help="Inspect or install a pinned release from GitHub (never a moving branch).",
+    )
+    update.add_argument(
+        "--tag", required=True,
+        help="Exact stable release tag (example: v0.3.1).",
+    )
+    update.add_argument(
+        "--apply", action="store_true",
+        help="Actually install the verified tagged commit; check-only by default.",
+    )
+    update.add_argument(
+        "--yes", action="store_true",
+        help="Explicit authorization required together with --apply.",
+    )
+    update.add_argument(
+        "--allow-downgrade", action="store_true",
+        help="Allow intentional rollback to an older stable version.",
+    )
+    update.add_argument(
+        "--ssh", action="store_true",
+        help="Use SSH Git credentials for a private GitHub repository.",
+    )
+
     return parser
 
 
@@ -139,6 +164,32 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "update":
+            from agent_dev_kit.version_sync import apply_update, preview_update
+
+            preview = preview_update(args.tag, use_ssh=args.ssh)
+            print(
+                f"Instalado: {preview.installed} · tag: {preview.tag} · "
+                f"commit verificado: {preview.commit}"
+            )
+            if not args.apply:
+                print(
+                    "Sólo consulta; no se modificó el entorno. "
+                    "Para instalar: repetí con --apply --yes."
+                )
+                if preview.editable:
+                    print(
+                        "Entorno editable detectado: actualizá el repositorio "
+                        "con Git, no mediante pip."
+                    )
+                return 0
+            apply_update(
+                preview, confirmed=args.yes,
+                allow_downgrade=args.allow_downgrade,
+            )
+            print(f"Actualización a {preview.tag} instalada.")
+            return 0
+
         if args.command == "mcp":
             from agent_dev_kit.mcp_server import run_mcp_server
 
