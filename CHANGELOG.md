@@ -2,6 +2,13 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
+## Correcciones previas al release v0.3.0 — regresión /task T-066
+
+- un criterio negativo que exige ausencia de referencias de ramas se valida por lectura completa del documento nombrado por la issue (sin cita de línea inexistente);
+- una regla de proyecto sin `context.rule_sources` autoritativo no puede aprobarse citando sólo `project.yaml`; queda PENDIENTE;
+- ante degradaciones de un criterio, el control agrega un veredicto global PENDIENTE, incluso si la conclusión narrativa del modelo recomienda cerrar la issue;
+- pruebas de regresión sin proveedor y con /task simulado para T-066. Pendiente prueba funcional real.
+
 ## En desarrollo — conexión MCP privada y actualizaciones controladas (`feat/mcp-remote-version-sync`)
 
 - documentación de Secure MCP Tunnel para acceso privado desde ChatGPT sin puerto público;
