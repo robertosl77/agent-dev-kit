@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import os
+from secrets import token_hex
 from time import monotonic
 from typing import Any
 from uuid import uuid4
@@ -27,6 +28,9 @@ from agent_dev_kit.task_workflow import (
     verify_task_outputs,
 )
 from agent_dev_kit.workspace_tools import Workspace
+from agent_dev_kit.workflow_checkpoint import (
+    WorkflowCheckpointStore, encode_plan, decode_plan,
+)
 
 
 STAGES = frozenset({"plan", "propose", "act"})
@@ -60,6 +64,7 @@ class WorkflowController:
         self.allow_actions = allow_actions
         self._clock = clock or monotonic
         self._sessions: dict[str, WorkflowState] = {}
+        self._store = WorkflowCheckpointStore(gateway.project_root)
 
     def start(self, request: str, mode: str = "propose", issue: str | None = None) -> dict[str, Any]:
         mode = str(mode).strip().lower()
@@ -84,24 +89,7 @@ class WorkflowController:
         if len(self._sessions) + len(self.gateway._conversations) + len(self.gateway._tasks) >= maximum:
             raise RuntimeError("Gateway session limit reached.")
         root = self.gateway.project_root
-        workspace = Workspace(
-            root=root,
-            config=config.workspace,
-            # Only configured automatic test commands run here. Commands in
-            # allowed_commands must not be silently approved over MCP.
-            approve_command=lambda command: False,
-        )
-        # Optional private-issue read credential supplied by the server owner.
-        # It remains inside Workspace; it is never included in MCP output.
-        workspace._github_token = os.environ.get("AGENT_DEV_KIT_GITHUB_READ_TOKEN") or None
-        runtime = ProviderRuntime(
-            registry=self.gateway.registry,
-            project_config=config,
-            tool_registry=self.gateway.tool_registry,
-            preference_profile=self.gateway.preference_profile,
-            workspace=workspace,
-            mode="propose",
-        )
+        workspace, runtime = self._new_runtime(mode)
         ident = "workflow_" + uuid4().hex
         now = self._clock()
         state = WorkflowState(
@@ -112,11 +100,123 @@ class WorkflowController:
         self._sessions[ident] = state
         return self._drive(ident, state)
 
+    def _new_runtime(self, mode: str) -> tuple[Workspace, ProviderRuntime]:
+        config = self.gateway.config
+        workspace = Workspace(
+            root=self.gateway.project_root,
+            config=config.workspace,
+            approve_command=lambda command: False,
+            defer_commands=(mode == "act"),
+        )
+        workspace._github_token = os.environ.get("AGENT_DEV_KIT_GITHUB_READ_TOKEN") or None
+        runtime = ProviderRuntime(
+            registry=self.gateway.registry,
+            project_config=config,
+            tool_registry=self.gateway.tool_registry,
+            preference_profile=self.gateway.preference_profile,
+            workspace=workspace,
+            mode="propose",
+        )
+        return workspace, runtime
+
+    def _persist(self, ident: str, state: WorkflowState) -> None:
+        """Save at every external boundary, never provider credentials."""
+        self._store.save(ident, {
+            "request": state.request,
+            "mode": state.mode,
+            "phase": state.phase,
+            "status": state.status,
+            "issue": state.issue,
+            "branch": state.branch,
+            "failure": state.failure,
+            "plan": encode_plan(state.plan),
+            "review": state.review,
+            "pending_decision": state.pending_decision,
+            "pending_commands": list(state.workspace.pending_commands),
+            "command_outcomes": list(state.workspace.events),
+            "target_index": state.runtime._target_index,
+        })
+
+    def _restore(self, ident: str) -> WorkflowState | None:
+        data = self._store.load(ident, self.gateway.config.gateway.session_ttl_seconds)
+        if data is None:
+            return None
+        workspace, runtime = self._new_runtime(str(data["mode"]))
+        runtime._target_index = min(
+            max(int(data.get("target_index", 0)), 0),
+            len(runtime.project_config.provider.targets()) - 1,
+        )
+        now = self._clock()
+        state = WorkflowState(
+            request=data["request"], mode=data["mode"], runtime=runtime,
+            workspace=workspace, issue=data.get("issue"),
+            created_at=now, last_accessed_at=now,
+            phase=data["phase"], status=data["status"],
+            plan=decode_plan(data.get("plan")),
+            branch=data.get("branch"), review=data.get("review"),
+            failure=data.get("failure"),
+        )
+        workspace.pending_commands.extend(data.get("pending_commands") or [])
+        workspace.events.extend(data.get("command_outcomes") or [])
+        if state.pending_decision:
+            state.pending_decision = None
+        pending = data.get("pending_decision")
+        if pending is not None and state.status == "approval_required":
+            # Old approval IDs are invalid across process boundaries.
+            state.pending_decision = {**pending, "id": uuid4().hex}
+        if state.status in {"planning", "executing_intake", "executing", "fallback_required"}:
+            state.status = "interrupted"
+            state.failure = (
+                "Execution was interrupted. No model call or write will be "
+                "automatically replayed."
+            )
+        self._sessions[ident] = state
+        self._persist(ident, state)
+        return state
+
+    def resume(self, workflow_id: str, approve: bool) -> dict[str, Any]:
+        """Explicit retry of safe phases, never of interrupted action writes."""
+        state = self._state(workflow_id)
+        if state.status != "interrupted" or type(approve) is not bool:
+            raise ValueError("No interrupted workflow awaiting recovery.")
+        if not approve:
+            return self.cancel(workflow_id)
+        if state.mode == "act" and state.branch is not None:
+            state.status, state.phase = "manual_review_required", "manual_review_required"
+            state.failure = (
+                "Action run was interrupted after branch creation; inspect the "
+                "worktree and commit manually. Never replay writes automatically."
+            )
+            return self._snapshot(workflow_id, state)
+        if state.phase == "planning":
+            state.plan = None
+        if state.phase == "intake" and state.plan is not None:
+            if state.plan.requires_story_approval and any(
+                node.status == "completed" for node in state.plan.nodes
+                if node.agent == "scrum_master"
+            ):
+                state.phase = "story_confirmation"
+                story = next(
+                    node.output for node in state.plan.nodes
+                    if node.agent == "scrum_master"
+                )
+                return self._require(
+                    workflow_id, state, "story",
+                    "¿Confirmás la historia de usuario y sus criterios?",
+                    details=story,
+                )
+        if state.phase not in {"planning", "intake", "execute"}:
+            state.phase = "planning" if state.plan is None else "execute"
+        # No automatic repetition: an explicit human approval starts the retry.
+        return self._drive(workflow_id, state)
+
     def status(self, workflow_id: str) -> dict[str, Any]:
         return self._snapshot(workflow_id, self._state(workflow_id))
 
     def decide(self, workflow_id: str, decision_id: str, approve: bool) -> dict[str, Any]:
         state = self._state(workflow_id)
+        if state.mode == "act" and not self.allow_actions:
+            raise ValueError("MCP action mode is disabled by the server owner.")
         pending = state.pending_decision
         if pending is None or pending["id"] != decision_id:
             raise ValueError("There is no matching outstanding decision.")
@@ -172,6 +272,8 @@ class WorkflowController:
 
     def provide_issue(self, workflow_id: str, issue: str) -> dict[str, Any]:
         state = self._state(workflow_id)
+        if state.mode == "act" and not self.allow_actions:
+            raise ValueError("MCP action mode is disabled by the server owner.")
         if state.phase != "issue_required" or not issue.strip():
             raise ValueError("No issue reference is currently required.")
         state.issue = issue.strip().lstrip("#")
@@ -180,6 +282,8 @@ class WorkflowController:
 
     def fallback(self, workflow_id: str, approve: bool) -> dict[str, Any]:
         state = self._state(workflow_id)
+        if state.mode == "act" and not self.allow_actions:
+            raise ValueError("MCP action mode is disabled by the server owner.")
         if type(approve) is not bool:
             raise ValueError("approve must be a boolean.")
         if state.pending_error is None or state.status != "fallback_required":
@@ -300,6 +404,7 @@ class WorkflowController:
                 state.phase = "planning"
             if state.phase == "planning":
                 state.status = "planning"
+                self._persist(ident, state)
                 state.plan = state.runtime.kit.plan_task_sync(state.request)
                 if state.mode == "plan":
                     state.plan.trace.mode = "plan"
@@ -316,6 +421,7 @@ class WorkflowController:
                 state.workspace.bind_trace(state.plan.trace)
                 if state.plan.requires_story_approval:
                     state.status = "executing_intake"
+                    self._persist(ident, state)
                     state.runtime.kit.execute_plan_sync(state.plan, intake_only=True)
                     state.phase = "story_confirmation"
                     story = next(node.output for node in state.plan.nodes if node.agent == "scrum_master")
@@ -343,9 +449,13 @@ class WorkflowController:
                     if state.plan.trace is not None:
                         state.plan.trace.mode = "act"
                 state.status = "executing"
+                self._persist(ident, state)
                 state.workspace.bind_trace(state.plan.trace)
                 state.plan.facts = prepare_task_facts(state.workspace, config, state.request)
                 state.runtime.kit.execute_plan_sync(state.plan)
+                if state.mode == "act" and state.workspace.pending_commands:
+                    state.phase = "command_confirmation"
+                    return self._next_command_approval(ident, state)
                 verify_task_outputs(state.plan, state.workspace)
                 if state.mode != "act":
                     state.status, state.phase = "completed", "completed"
@@ -367,9 +477,19 @@ class WorkflowController:
             if state.phase in FINISHED or state.phase in {
                 "issue_required", "branch_confirmation", "plan_confirmation",
                 "story_confirmation", "commit_confirmation",
+                "command_confirmation", "manual_review_required",
             }:
                 return self._snapshot(ident, state)
             raise RuntimeError("Unsupported workflow phase: " + state.phase)
+
+    def _next_command_approval(self, ident: str, state: WorkflowState) -> dict[str, Any]:
+        entry = state.workspace.pending_commands[0]
+        state.phase = "command_confirmation"
+        return self._require(
+            ident, state, "command",
+            "¿Autorizás ejecutar este comando restringido, una sola vez?",
+            details=dict(entry),
+        )
 
     def _require(
         self, ident: str, state: WorkflowState, kind: str,
@@ -388,6 +508,8 @@ class WorkflowController:
         self.cleanup()
         state = self._sessions.get(ident)
         if state is None:
+            state = self._restore(ident)
+        if state is None:
             raise ValueError("Unknown or expired workflow session.")
         state.last_accessed_at = self._clock()
         return state
@@ -398,12 +520,14 @@ class WorkflowController:
         expired = [ident for ident, s in self._sessions.items() if now - s.last_accessed_at >= ttl]
         for ident in expired:
             del self._sessions[ident]
+            self._store.delete(ident)
         return len(expired)
 
     def _snapshot(
         self, ident: str, state: WorkflowState, *, fallback: Any = None,
     ) -> dict[str, Any]:
         state.last_accessed_at = self._clock()
+        self._persist(ident, state)
         plan = state.plan
         return {
             "workflow_id": ident, "status": state.status,
@@ -415,4 +539,6 @@ class WorkflowController:
             "review": state.review, "failure": state.failure,
             "input_required": "issue" if state.phase == "issue_required" else None,
             "fallback": fallback,
+            "recovery": "manual_review_only" if state.status == "manual_review_required"
+                else ("explicit_resume_required" if state.status == "interrupted" else None),
         }
