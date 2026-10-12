@@ -199,3 +199,44 @@ def test_rejected_plan_never_creates_branch(setup_repo):
     assert rejected["status"] == "rejected"
     assert "Agent Scrum Master" not in provider.ran
     assert git(root, "branch", "--show-current") == "develop"
+
+
+def test_modified_diff_invalidates_old_commit_approval(setup_repo):
+    gateway, _, root = setup_repo
+    gateway.workflow.allow_actions = True
+    result = gateway.workflow.start(REQUEST, mode="act")
+    result = gateway.workflow.decide(result["workflow_id"], result["approval"]["id"], True)
+    result = gateway.workflow.decide(result["workflow_id"], result["approval"]["id"], True)
+    assert result["approval"]["kind"] == "commit"
+    prior_decision = result["approval"]["id"]
+    (root / "form.txt").write_text("unexpected change", encoding="utf-8")
+
+    refreshed = gateway.workflow.decide(result["workflow_id"], prior_decision, True)
+    assert refreshed["approval"]["kind"] == "commit"
+    assert refreshed["approval"]["id"] != prior_decision
+    assert refreshed["status"] == "approval_required"
+    assert git(root, "log", "-1", "--format=%s") == "initial"
+
+
+def test_two_action_sessions_cannot_mutate_one_worktree(setup_repo):
+    gateway, _, root = setup_repo
+    gateway.workflow.allow_actions = True
+    first = gateway.workflow.start(REQUEST, mode="act")
+    assert first["status"] == "approval_required"
+    second = gateway.workflow.start(REQUEST, mode="act")
+    assert second["status"] == "blocked"
+    assert "Another action workflow" in second["reason"]
+    gateway.workflow.cancel(first["workflow_id"])
+    third = gateway.workflow.start(REQUEST, mode="act")
+    assert third["status"] == "approval_required"
+
+
+def test_usage_and_graphs_are_read_only(setup_repo):
+    gateway, _, root = setup_repo
+    result = gateway.workflow.start(REQUEST, mode="plan")
+    data = gateway.workflow.usage(result["workflow_id"])
+    assert data["totals"]["requests"] == 0  # scripted provider has no token usage
+    assert "estimated_usd" in data
+    assert isinstance(gateway.workflow.graphs()["runs"], list)
+    assert isinstance(gateway.workflow.candidates()["report"], list)
+    assert git(root, "branch", "--show-current") == "develop"
