@@ -1,6 +1,6 @@
 # Interfaz MCP para clientes de chat
 
-**Actualización en desarrollo:** los siete endpoints originales de este documento se conservan para compatibilidad. La rama `feat/mcp-cli-parity` incorpora además `agent_dev_kit_workflow_*`, revisión Git, trazas y consumo. Ver [Paridad CLI/MCP](mcp_cli_parity.md) para las herramientas, aprobaciones y limitaciones actuales.
+**Estado en `develop`:** los siete endpoints originales se conservan para compatibilidad. También están disponibles `agent_dev_kit_workflow_*`, revisión Git, trazas y consumo. Ver [Paridad CLI/MCP](mcp_cli_parity.md). Para clientes remotos sin puerto público consultar [Secure MCP Tunnel](conexion_chatgpt_tunnel.md).
 
 ## Objetivo
 
