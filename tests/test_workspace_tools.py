@@ -82,6 +82,21 @@ def test_commands_test_run_alone_allowed_ask_and_others_are_refused(repo):
         ws.run_command({"command": "rm -rf ."})
 
 
+def test_allowed_command_is_never_interpreted_by_shell(repo):
+    ws = Workspace(repo, WorkspaceConfig(test_commands=("git status",)))
+    assert ws.run_command({"command": "git status --short"}).startswith("exit code 0")
+    for command in (
+        "git status ; echo INJECTED",
+        "git status && echo INJECTED",
+        "git status | cat",
+        "git status > output.txt",
+        "git status `echo INJECTED`",
+    ):
+        with pytest.raises(WorkspaceError, match="not allowed"):
+            ws.run_command({"command": command})
+    assert not (repo / "output.txt").exists()
+
+
 def test_tool_catalog_by_access(repo):
     ws = Workspace(repo)
     read_names = {tool.name for tool in ws.tools(READ)}
