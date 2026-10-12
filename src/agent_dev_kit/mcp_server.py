@@ -169,6 +169,11 @@ def build_mcp_server(
         return gateway.workflow.repository_status()
 
     @server.tool()
+    def agent_dev_kit_workflow_usage(workflow_id: str) -> dict[str, Any]:
+        """Read token usage by agent and cost estimate when prices are configured."""
+        return gateway.workflow.usage(workflow_id)
+
+    @server.tool()
     def agent_dev_kit_graphs(limit: int = 20) -> dict[str, Any]:
         """Read persisted orchestration graph summaries (no mutation)."""
         return gateway.workflow.graphs(limit)
