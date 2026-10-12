@@ -25,6 +25,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import urllib.error
 import urllib.request
@@ -396,8 +397,8 @@ class Workspace:
                 raise WorkspaceError(f"The person did not approve running: {command}")
         try:
             completed = subprocess.run(
-                command,
-                shell=True,
+                _command_argv(command),
+                shell=False,
                 cwd=cwd,
                 capture_output=True,
                 text=True,
@@ -581,9 +582,30 @@ def _is_secret(name: str) -> bool:
     return lowered == ".env" or lowered.startswith(".env.")
 
 
+def _command_argv(command: str) -> list[str]:
+    """Parse an allowed command without a shell or command-chaining syntax.
+
+    The project allowlist remains authoritative. Additional arguments may be
+    accepted by the allowlist but never become shell operators.
+    """
+    if any(ch in command for ch in (";", "|", "&", ">", "<", "$", "`", "\\n", "\\r")):
+        raise WorkspaceError("Shell operators and expansions are not allowed.")
+    try:
+        argv = shlex.split(command, posix=(os.name != "nt"))
+    except ValueError as exc:
+        raise WorkspaceError(f"Invalid command syntax: {exc}") from exc
+    if not argv:
+        raise WorkspaceError("Command is empty.")
+    return argv
+
+
 def _command_matches(command: str, allowed: str) -> bool:
-    allowed = " ".join(allowed.split())
-    return command == allowed or command.startswith(allowed + " ")
+    try:
+        requested = _command_argv(command)
+        prefix = _command_argv(allowed)
+    except WorkspaceError:
+        return False
+    return requested[:len(prefix)] == prefix
 
 
 def _github_error(exc: urllib.error.HTTPError) -> str:
