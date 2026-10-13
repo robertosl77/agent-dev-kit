@@ -16,6 +16,7 @@ from agent_dev_kit.agents import (
     build_product_definition,
     build_reviewer_definition,
     build_security_definition,
+    build_scrum_master_definition,
     build_testing_definition,
     build_triage_definition,
     build_ux_ui_definition,
@@ -40,6 +41,7 @@ AgentDefinitionBuilder: TypeAlias = Callable[..., AgentDefinition]
 AGENT_BUILDERS: dict[str, AgentDefinitionBuilder] = {
     "product": build_product_definition,
     "pmo": build_pmo_definition,
+    "scrum_master": build_scrum_master_definition,
     "architecture": build_architecture_definition,
     "ux_ui": build_ux_ui_definition,
     "backend": build_backend_definition,
@@ -124,8 +126,13 @@ def create_enabled_agents(
     *,
     tool_registry: ToolRegistry | None = None,
     preference_profile: PreferenceProfile | None = None,
+    builtin_tools: "Callable[[str], tuple] | None" = None,
+    with_handoffs: bool = True,
 ) -> dict[str, AgentHandle]:
     """Instantiate only enabled agents.
+
+    ``with_handoffs=False`` builds DAG-node agents (M-085): the task plan owns
+    cross-specialist sequencing, so nodes get no ``transfer_to_*`` tools.
 
     Triage, when enabled, is created last and receives handoffs only to the
     other enabled agents. Disabled agents are neither instantiated nor exposed
@@ -139,15 +146,16 @@ def create_enabled_agents(
     handles: dict[str, AgentHandle] = {}
 
     def tools_for(key: str):
+        builtin = tuple(builtin_tools(key)) if builtin_tools is not None else ()
         contextual = config.agent(key)
         requested = contextual.tools if contextual is not None else ()
         if not requested:
-            return ()
+            return builtin
         if tool_registry is None:
             raise ValueError(
                 f"Agent '{key}' requests tools but no ToolRegistry was supplied."
             )
-        return tool_registry.resolve(requested, provider=provider.key)
+        return builtin + tool_registry.resolve(requested, provider=provider.key)
 
     for key, definition in definitions.items():
         if key == "triage":
@@ -173,6 +181,9 @@ def create_enabled_agents(
             handles["triage"] = provider.create_agent(
                 definitions["triage"],
             )
+
+    if not with_handoffs:
+        return handles
 
     capability_graph = build_enabled_capability_graph(handles.keys())
     for source, targets in capability_graph.items():

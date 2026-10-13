@@ -54,6 +54,16 @@ forma determinística riesgos críticos como autenticación, cambios de esquema,
 APIs públicas, datos sensibles y deployment. Los riesgos detectados se fusionan
 con los de Triage y no pueden ser omitidos para evitar un gate.
 
+El prompt de planificación incluye el mapa completo `risk_flag -> agente
+requerido` (misma fuente que el validador, `RISK_REQUIRED_AGENTS`), para que el
+modelo no tenga que adivinarlo. Si el plan declara un flag sin seleccionar a su
+agente, el único intento de reparación explica las dos salidas válidas: quitar
+el flag o seleccionar el agente y agregarle un nodo (M-083).
+
+Cada salida rechazada del planner (plan y reparación) se agrega a
+`.agent-dev-kit/runtime/planner-rejections.jsonl` con fecha, etapa, error,
+fingerprint del pedido y la salida recortada. El error final muestra esa ruta.
+
 `risk_flags`, fases y artefactos durables usan contratos cerrados. Un valor
 desconocido o un typo se rechaza; no se degrada silenciosamente a texto libre.
 

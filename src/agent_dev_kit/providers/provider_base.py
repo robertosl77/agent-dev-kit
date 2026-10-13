@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from agent_dev_kit.agent_definition import AgentDefinition
@@ -22,6 +22,7 @@ class ProviderRunResult:
     output: Any
     active_agent: AgentHandle
     native_result: Any | None = None
+    usage: list[Any] = field(default_factory=list)  # list[UsageRecord] (M-036)
 
 
 class AgentProvider(ABC):
@@ -58,6 +59,13 @@ class AgentProvider(ABC):
 
         raise NotImplementedError(
             f"Provider '{self.key}' does not support structured output."
+        )
+
+    def native_tool(self, tool: Any) -> Any:
+        """Convert a built-in workspace tool (M-076) to this provider's format."""
+
+        raise NotImplementedError(
+            f"Provider '{self.key}' does not support built-in tools."
         )
 
     def set_handoffs(

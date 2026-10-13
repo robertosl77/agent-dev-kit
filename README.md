@@ -4,9 +4,11 @@ Framework reutilizable de agentes especializados para acompañar el desarrollo d
 
 ## Estado
 
-El framework tiene un catálogo base de 16 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
+> **Integrado en `develop`, no publicado en `main`:** flujos MCP para planificación, propuestas y acción aprobada, con checkpoints y permisos individuales. Ver [Paridad CLI/MCP](docs/mcp_cli_parity.md). La conexión privada y las actualizaciones versionadas se desarrollan en `feat/mcp-remote-version-sync`.
 
-Versión actual: `v0.2.0`, con tres proveedores (Anthropic, Gemini y OpenAI) y elección de proveedor, modelo y key en cada ejecución por consola. Ver [CHANGELOG](CHANGELOG.md).
+El framework tiene un catálogo base de 17 agentes, configuración contextual por proyecto, selección de agentes habilitados, runtime persistente, orquestación por riesgo, abstracción de proveedor, MCP y capa neutral de herramientas.
+
+Versión actual: `v0.3.0`. Tres proveedores (Anthropic, Gemini y OpenAI) elegidos en cada ejecución, y agentes con **herramientas**: leen el repo y las issues, y con `/do` cambian archivos y corren tests en una rama local, siempre con tu aprobación. Cada uso registra grafo, modelo y consumo. Ver [CHANGELOG](CHANGELOG.md).
 
 ## Principios
 
@@ -32,6 +34,7 @@ Desde `v0.2.0` vienen registrados de fábrica `AnthropicProvider`, `GeminiProvid
 ```text
 Agent Product
 Agent PMO
+Agent Scrum Master
 Agent Architecture
 Agent UX/UI
 Agent Backend
@@ -191,11 +194,13 @@ agents:
 - [Ejecución, proveedores y fallback](docs/ejecucion_y_fallback.md)
 - [Smoke test pre-versionado](docs/smoke_test.md)
 - [Interfaz MCP para clientes de chat](docs/interfaz_mcp.md)
+- [Conexión privada de ChatGPT mediante Secure MCP Tunnel](docs/conexion_chatgpt_tunnel.md)
 - [Integración con GitHub Copilot](docs/integracion_copilot.md)
 - [Distribución y versionado](docs/distribucion_versionado.md)
 - [Decisión de distribución cerrada](docs/distribucion_cerrada.md)
 - [Política Git por proyecto](docs/git_workflow.md)
 - [Proveedores](docs/proveedores.md)
+- [Modos de consola: /plan, /task y /do](docs/modos_consola.md)
 - [Documentación individual de agentes](docs/agentes/)
 
 ## Proveedor
@@ -253,6 +258,23 @@ agent-dev-kit task . "descripción de la tarea"
 
 Antes de empezar, un menú pregunta proveedor, key (oculta, no se guarda) y modelo (lista en vivo del proveedor). Con `--provider` y `--model` se saltea el menú.
 
+Dentro de la sesión:
+
+```text
+/plan <pedido>   solo el plan
+/task <pedido>   plan + validación de historia si hay cambio funcional + propuestas
+/do   <pedido>   plan → OK → rama local desde develop → cambian archivos y corren tests → OK → commit local
+```
+
+Análisis de los grafos registrados:
+
+```bash
+agent-dev-kit graphs .
+agent-dev-kit candidates .
+```
+
+Detalle en [Modos de consola](docs/modos_consola.md).
+
 
 ## MCP
 
@@ -268,6 +290,9 @@ Streamable HTTP local:
 agent-dev-kit mcp . --transport streamable-http
 ```
 
+Para conectar un cliente remoto sin abrir puertos públicos:
+[Secure MCP Tunnel](docs/conexion_chatgpt_tunnel.md).
+
 El servidor queda vinculado al proyecto indicado al arrancar y no acepta
 rutas de repositorio desde las herramientas.
 
@@ -278,7 +303,28 @@ Un consumidor fija exactamente la versión publicada:
 
 ```bash
 python -m pip install \
-  "agent-dev-kit[openai,anthropic,gemini,mcp] @ git+https://github.com/robertosl77/agent-dev-kit.git@v0.2.0"
+  "agent-dev-kit[openai,anthropic,gemini,mcp] @ git+https://github.com/robertosl77/agent-dev-kit.git@v0.3.0"
 ```
 
 No se recomienda consumir `main` como dependencia estable.
+
+
+### Verificación de actualizaciones
+
+Consultar un tag **estable, explícito** y obtener su commit sin modificar el
+entorno:
+
+```bash
+agent-dev-kit update --tag v0.3.1
+```
+
+Instalar la versión consultada sólo en una instalación **no editable**, con
+autorización expresa:
+
+```bash
+agent-dev-kit update --tag v0.3.1 --apply --yes
+```
+
+Se instala un SHA exacto, no una rama cambiante. Las instalaciones editables
+se actualizan con Git, no con `pip update`. El tag del ejemplo sólo ilustra la
+sintaxis; comprobar que realmente exista antes de usarlo.

@@ -1,3 +1,8 @@
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 from dataclasses import dataclass
 from hashlib import sha256
 from time import perf_counter
@@ -19,6 +24,7 @@ from agent_dev_kit.orchestration import (
     OrchestrationTrace,
     OrchestrationTraceStore,
     fingerprint_request,
+    fingerprint_intake,
     fingerprint_routing,
     resolve_project_trace_path,
 )
@@ -28,6 +34,19 @@ from agent_dev_kit.task_plan import (
     TaskPlan,
     TaskPlanError,
     build_planning_prompt,
+    render_risk_agent_map,
+    validate_act_plan_capabilities,
+    ACT_CAPABILITY_RULES,
+)
+from agent_dev_kit.task_facts import verdict_format_note
+
+
+MAX_REQUEST_IN_NODE_CHARS = 4000
+MAX_REJECTED_OUTPUT_CHARS = 20000
+_PLAN_SLOT = "\x00plan-context\x00"
+PLANNER_REJECTIONS_FILENAME = "planner-rejections.jsonl"
+_GATE_ERROR_PATTERN = re.compile(
+    r"((?:Risk|Artifact) '[^']+') requires selected agent '([^']+)'"
 )
 
 
@@ -39,7 +58,11 @@ class DevAgentKit:
     provider: AgentProvider
     agents: dict[str, AgentHandle]
     planner_agent: AgentHandle | None = None
+    node_agents: dict[str, AgentHandle] | None = None
     trace_store: OrchestrationTraceStore | None = None
+    rejection_log_path: Path | None = None
+    execution_note: str = ""
+    mode: str = "propose"
 
     @classmethod
     def build(
@@ -49,23 +72,39 @@ class DevAgentKit:
         *,
         tool_registry: ToolRegistry | None = None,
         preference_profile: PreferenceProfile | None = None,
+        builtin_tools: Any | None = None,
+        execution_note: str = "",
+        mode: str = "propose",
     ) -> "DevAgentKit":
         trace_store = None
+        rejection_log_path = None
         if config.orchestration.trace_enabled and config.project_root is not None:
             trace_path = resolve_project_trace_path(
                 config.project_root,
                 config.orchestration.trace_path,
             )
+            rejection_log_path = trace_path.parent / PLANNER_REJECTIONS_FILENAME
             trace_store = OrchestrationTraceStore(
                 trace_path,
                 max_entries=config.orchestration.trace_max_entries,
             )
 
+        # DAG-node agents first, without handoffs (M-085); the conversation
+        # agents below keep theirs.
+        node_agents = create_enabled_agents(
+            provider,
+            config,
+            tool_registry=tool_registry,
+            preference_profile=preference_profile,
+            builtin_tools=builtin_tools,
+            with_handoffs=False,
+        )
         agents = create_enabled_agents(
             provider,
             config,
             tool_registry=tool_registry,
             preference_profile=preference_profile,
+            builtin_tools=builtin_tools,
         )
         planner_agent = None
         if "triage" in agents:
@@ -91,7 +130,11 @@ class DevAgentKit:
             provider=provider,
             agents=agents,
             planner_agent=planner_agent,
+            node_agents=node_agents,
             trace_store=trace_store,
+            rejection_log_path=rejection_log_path,
+            execution_note=execution_note,
+            mode=mode,
         )
 
     def conversation(
@@ -120,6 +163,7 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
             project_policies=self.config.orchestration.policies,
+            mode=self.mode,
         )
         self._ensure_prompt_budget(prompt, stage="planning")
         self._ensure_provider_call_budget(1, stage="planning")
@@ -131,11 +175,20 @@ class DevAgentKit:
             session=session,
         )
         planning_calls = 1
+        planning_usage = list(result.usage)
         self._validate_planner_result(planner, result)
 
         try:
-            plan = self._parse_planner_output(result.output)
+            plan = self._parse_and_validate_plan(result.output, request)
+        except DisabledAgentRequiredError:
+            raise
         except TaskPlanError as first_error:
+            self._record_planner_rejection(
+                request=request,
+                stage="planning",
+                output=result.output,
+                error=first_error,
+            )
             self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
                 request=request,
@@ -152,29 +205,35 @@ class DevAgentKit:
                 session=session,
             )
             planning_calls += 1
+            planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
-                plan = self._parse_planner_output(repaired.output)
+                plan = self._parse_and_validate_plan(repaired.output, request)
+            except DisabledAgentRequiredError:
+                raise
             except TaskPlanError as second_error:
+                saved = self._record_planner_rejection(
+                    request=request,
+                    stage="planning_repair",
+                    output=repaired.output,
+                    error=second_error,
+                )
+                hint = f" Salidas rechazadas en: {saved}" if saved else ""
                 raise TaskPlanError(
                     "Planner output remained invalid after one repair "
-                    f"attempt: {second_error}"
+                    f"attempt: {second_error}{hint}"
                 ) from second_error
 
         planning_ms = (perf_counter() - started) * 1000
         plan.request = request
         plan.provider_calls = planning_calls
-        plan.validate_orchestration_policy(
-            self.agents.keys(),
-            request=plan.request,
-            project_policies=self.config.orchestration.policies,
-        )
         plan.trace = self._build_trace(
             plan,
             request=request,
             planning_ms=planning_ms,
             planning_calls=planning_calls,
         )
+        plan.trace.add_usage("planner", "triage", planning_usage)
         self._ensure_dag_budget(plan, stage="planning")
         return plan
 
@@ -192,6 +251,7 @@ class DevAgentKit:
             enabled_agents=self.agents.keys(),
             available_agents=AVAILABLE_AGENT_KEYS,
             project_policies=self.config.orchestration.policies,
+            mode=self.mode,
         )
         self._ensure_prompt_budget(prompt, stage="planning")
         self._ensure_provider_call_budget(1, stage="planning")
@@ -203,11 +263,20 @@ class DevAgentKit:
             session=session,
         )
         planning_calls = 1
+        planning_usage = list(result.usage)
         self._validate_planner_result(planner, result)
 
         try:
-            plan = self._parse_planner_output(result.output)
+            plan = self._parse_and_validate_plan(result.output, request)
+        except DisabledAgentRequiredError:
+            raise
         except TaskPlanError as first_error:
+            self._record_planner_rejection(
+                request=request,
+                stage="planning",
+                output=result.output,
+                error=first_error,
+            )
             self._ensure_provider_call_budget(2, stage="planning_repair")
             repair_prompt = self._planning_repair_prompt(
                 request=request,
@@ -224,31 +293,44 @@ class DevAgentKit:
                 session=session,
             )
             planning_calls += 1
+            planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
-                plan = self._parse_planner_output(repaired.output)
+                plan = self._parse_and_validate_plan(repaired.output, request)
+            except DisabledAgentRequiredError:
+                raise
             except TaskPlanError as second_error:
+                saved = self._record_planner_rejection(
+                    request=request,
+                    stage="planning_repair",
+                    output=repaired.output,
+                    error=second_error,
+                )
+                hint = f" Salidas rechazadas en: {saved}" if saved else ""
                 raise TaskPlanError(
                     "Planner output remained invalid after one repair "
-                    f"attempt: {second_error}"
+                    f"attempt: {second_error}{hint}"
                 ) from second_error
 
         planning_ms = (perf_counter() - started) * 1000
         plan.request = request
         plan.provider_calls = planning_calls
-        plan.validate_orchestration_policy(
-            self.agents.keys(),
-            request=plan.request,
-            project_policies=self.config.orchestration.policies,
-        )
         plan.trace = self._build_trace(
             plan,
             request=request,
             planning_ms=planning_ms,
             planning_calls=planning_calls,
         )
+        plan.trace.add_usage("planner", "triage", planning_usage)
         self._ensure_dag_budget(plan, stage="planning")
         return plan
+
+    def _node_agent(self, key: str) -> AgentHandle:
+        """DAG nodes run without handoff tools (M-085)."""
+
+        if self.node_agents is not None and key in self.node_agents:
+            return self.node_agents[key]
+        return self.agents[key]
 
     def _require_planner(self) -> AgentHandle:
         if "triage" not in self.agents or self.planner_agent is None:
@@ -271,6 +353,20 @@ class DevAgentKit:
                 "Planning must execute without handoffs."
             )
 
+    def _parse_and_validate_plan(self, output: Any, request: str) -> TaskPlan:
+        """Parse and validate gates, so both kinds of error get one repair."""
+
+        plan = self._parse_planner_output(output)
+        plan.request = request
+        plan.validate_orchestration_policy(
+            self.agents.keys(),
+            request=request,
+            project_policies=self.config.orchestration.policies,
+        )
+        if self.mode == "act":
+            validate_act_plan_capabilities(plan)
+        return plan
+
     @staticmethod
     def _parse_planner_output(output: Any) -> TaskPlan:
         if isinstance(output, str):
@@ -283,6 +379,60 @@ class DevAgentKit:
             output,
             require_agent_decisions=True,
             strict_schema=True,
+        )
+
+    def _record_planner_rejection(
+        self,
+        *,
+        request: str,
+        stage: str,
+        output: Any,
+        error: TaskPlanError,
+    ) -> Path | None:
+        """Append a rejected planner output to the local JSONL log (M-083).
+
+        Best-effort diagnostics: a logging failure never hides the planning
+        error. Lives next to the orchestration traces (gitignored runtime dir).
+        """
+
+        path = self.rejection_log_path
+        if path is None:
+            return None
+        rendered = output if isinstance(output, str) else _render_output(output)
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "stage": stage,
+            "error": str(error),
+            "request_fingerprint": fingerprint_request(request),
+            "output": self._truncate_text(rendered, MAX_REJECTED_OUTPUT_CHARS),
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError:
+            return None
+        return path
+
+    def _gate_repair_guidance(self, error: TaskPlanError) -> str:
+        """Spell out the valid exits for a risk/artifact gate error (M-083)."""
+
+        match = _GATE_ERROR_PATTERN.search(str(error))
+        if match is None:
+            return ""
+        source, agent = match.group(1), match.group(2)
+        return (
+            f"How to fix this gate error ({source} -> '{agent}'), choose ONE:\n"
+            f"  a) If {source} is not materially present in the request, "
+            "remove it from the profile and keep the rest of the plan.\n"
+            f"  b) If it is present, set agent '{agent}' to selected: true "
+            f"AND add a node with agent '{agent}' (usually phase analysis) "
+            "wired with depends_on where it feeds other nodes.\n"
+            "Do not keep the flag while omitting the agent: that is the same "
+            "invalid plan again.\n"
+            "Risk flag -> required agents:\n"
+            + render_risk_agent_map(self.agents.keys())
+            + "\n\n"
         )
 
     def _planning_repair_prompt(
@@ -299,7 +449,13 @@ class DevAgentKit:
             "corrected TaskPlan only; do not explain the repair.\n\n"
             f"Original request:\n{request}\n\n"
             f"Validation error:\n{error}\n\n"
-            "Previous output:\n"
+            "agent_decisions must contain exactly one decision (selected true "
+            "or false, gate and reason) for EACH of these agents: "
+            + ", ".join(key for key in self.agents if key != "triage")
+            + ".\n\n"
+            + self._gate_repair_guidance(error)
+            + (ACT_CAPABILITY_RULES + "\n" if self.mode == "act" else "")
+            + "Previous output:\n"
         )
         available = budget - len(fixed)
         if available <= 0:
@@ -367,8 +523,9 @@ class DevAgentKit:
         plan: TaskPlan,
         *,
         session: Any | None = None,
+        intake_only: bool = False,
     ) -> TaskPlan:
-        """Execute ready DAG nodes within deterministic hard budgets."""
+        """Execute DAG nodes; pause for human acceptance after story intake."""
 
         try:
             self._prepare_plan_execution(plan)
@@ -383,8 +540,24 @@ class DevAgentKit:
             self._persist_trace(plan, "failed")
             raise
 
+        if plan.requires_story_approval and not intake_only:
+            if not plan.story_approved or any(
+                node.status != "completed"
+                for node in plan.nodes if node.agent == "scrum_master"
+            ):
+                raise TaskPlanError(
+                    "Scrum Master story requires explicit human approval before execution."
+                )
+
         while not plan.is_complete:
             ready = plan.ready_nodes()
+            if intake_only:
+                ready = [node for node in ready if node.agent == "scrum_master"]
+                if not ready:
+                    plan.execution_status = "awaiting_story_approval"
+                    if plan.trace is not None:
+                        plan.trace.status = "awaiting_story_approval"
+                    return plan
             if not ready:
                 plan.execution_status = "failed"
                 self._persist_trace(plan, "failed")
@@ -405,8 +578,9 @@ class DevAgentKit:
         plan: TaskPlan,
         *,
         session: Any | None = None,
+        intake_only: bool = False,
     ) -> TaskPlan:
-        """Async provider execution with deterministic hard budgets."""
+        """Async provider execution with the same story-approval barrier."""
 
         try:
             self._prepare_plan_execution(plan)
@@ -421,8 +595,24 @@ class DevAgentKit:
             self._persist_trace(plan, "failed")
             raise
 
+        if plan.requires_story_approval and not intake_only:
+            if not plan.story_approved or any(
+                node.status != "completed"
+                for node in plan.nodes if node.agent == "scrum_master"
+            ):
+                raise TaskPlanError(
+                    "Scrum Master story requires explicit human approval before execution."
+                )
+
         while not plan.is_complete:
             ready = plan.ready_nodes()
+            if intake_only:
+                ready = [node for node in ready if node.agent == "scrum_master"]
+                if not ready:
+                    plan.execution_status = "awaiting_story_approval"
+                    if plan.trace is not None:
+                        plan.trace.status = "awaiting_story_approval"
+                    return plan
             if not ready:
                 plan.execution_status = "failed"
                 self._persist_trace(plan, "failed")
@@ -440,6 +630,8 @@ class DevAgentKit:
 
     def _prepare_plan_execution(self, plan: TaskPlan) -> None:
         plan.validate_structure()
+        if self.mode == "act":
+            validate_act_plan_capabilities(plan)
         plan.validate_orchestration_policy(
             self.agents.keys(),
             request=plan.request,
@@ -458,7 +650,7 @@ class DevAgentKit:
         *,
         session: Any | None,
     ) -> None:
-        handle = self.agents[node.agent]
+        handle = self._node_agent(node.agent)
         started = perf_counter()
         attempt = self._check_node_attempt_budget(plan, node)
         prompt = self._node_prompt(plan, node)
@@ -496,7 +688,7 @@ class DevAgentKit:
         *,
         session: Any | None,
     ) -> None:
-        handle = self.agents[node.agent]
+        handle = self._node_agent(node.agent)
         started = perf_counter()
         attempt = self._check_node_attempt_budget(plan, node)
         prompt = self._node_prompt(plan, node)
@@ -603,6 +795,8 @@ class DevAgentKit:
             )
 
         node.output = result.output
+        if plan.trace is not None:
+            plan.trace.add_usage(node.id, node.agent, result.usage)
         node.evidence = {
             "provider": self.provider.key,
             "active_agent": result.active_agent.name,
@@ -612,6 +806,8 @@ class DevAgentKit:
             plan.trace.node_durations_ms[node.id] = (
                 perf_counter() - started
             ) * 1000
+        if plan.on_checkpoint is not None:
+            plan.on_checkpoint(plan)
 
     def _reuse_completed_node(
         self,
@@ -638,6 +834,8 @@ class DevAgentKit:
                     plan.calls_avoided_by_reuse
                 )
                 plan.trace.node_durations_ms[node.id] = 0.0
+            if plan.on_checkpoint is not None:
+                plan.on_checkpoint(plan)
             return True
         return False
 
@@ -665,31 +863,71 @@ class DevAgentKit:
 
     def _node_prompt(self, plan: TaskPlan, node: TaskNode) -> str:
         summary = plan.profile.summary if plan.profile else plan.request
+        request = self._truncate_text(plan.request or "", MAX_REQUEST_IN_NODE_CHARS)
+        language_rule = (
+            ""
+            if self.config.language
+            else (
+                "Language: write every text meant for people (answers, "
+                "documents, comments, reports) in the same language as the "
+                "original request below. Keep code, identifiers, file names, "
+                "commands and branch names unchanged.\n\n"
+            )
+        )
         prefix = (
             "Execute only this DAG node. Do not hand off to another "
             "specialist; cross-specialist sequencing is owned by the task "
             "plan. If another responsibility is required, report it as a "
             "blocker.\n\n"
+            + language_rule
+            + "Original request from the person (source of truth: every "
+            "explicit requirement in it must be met exactly; the summary and "
+            "objective below only scope your part. If it points to a source "
+            "that contradicts the verified facts or the project's rule "
+            "sources, follow those and state the contradiction):\n"
+            f"{request}\n\n"
+            "Do not invent people, roles, processes, rules, facts or "
+            "examples that are not in the request, the referenced issue or "
+            "the repository. If something is missing, say so instead of "
+            "assuming it.\n\n"
             f"Task summary:\n{summary}\n\n"
-            f"Node id: {node.id}\n"
+            + _PLAN_SLOT
+            + f"Node id: {node.id}\n"
             f"Phase: {node.phase}\n"
             f"Your responsibility: {node.agent}\n"
             f"Objective:\n{node.objective}\n\n"
             "Completed dependency outputs:\n"
         )
+        is_final = node.id in {item.id for item in plan.final_nodes()}
+        facts = getattr(plan, "facts", None)
+        if is_final:
+            closing = (
+                "\n\nYour answer is delivered to the person as the final "
+                "result; no later node rewrites it. Use the format they asked "
+                "for. No preamble or narration of your process, and nothing "
+                "outside the request except at most one line of collateral "
+                "findings."
+                + (f"\n{verdict_format_note(facts)}" if facts is not None else "")
+            )
+        else:
+            closing = (
+                "\n\nReturn the node result and concise evidence useful to "
+                "the following nodes and final documentation."
+            )
         suffix = (
-            "\n\nReturn the node result and concise evidence useful to the "
-            "following nodes and final documentation."
+            (f"\n\n{self.execution_note}" if self.execution_note else "")
+            + closing
         )
 
         context_limit = self.config.orchestration.budgets.max_context_chars
-        available = context_limit - len(prefix) - len(suffix)
+        mandatory = prefix.replace(_PLAN_SLOT, "")
+        available = context_limit - len(mandatory) - len(suffix)
         if available < 0:
             self._raise_budget(
                 plan,
                 budget="max_context_chars",
                 limit=context_limit,
-                actual=len(prefix) + len(suffix),
+                actual=len(mandatory) + len(suffix),
                 stage="execution",
                 node=node,
                 message=(
@@ -697,6 +935,32 @@ class DevAgentKit:
                     "dependency evidence is included."
                 ),
             )
+
+        # Optional context, by priority (M-084/M-085): dependency evidence,
+        # then the verified facts (trimmed to fit), then the real plan (whole
+        # or nothing). A node without dependencies reserves nothing for them.
+        evidence_reserve = (
+            min(
+                self.config.orchestration.budgets.max_dependency_evidence_chars,
+                available,
+            )
+            if node.depends_on
+            else 0
+        )
+        room = available - evidence_reserve
+        facts_text = getattr(facts, "text", "") or ""
+        if len(facts_text) > room:
+            facts_text = (
+                self._truncate_text(facts_text, room) + "\n\n"
+                if room > 400
+                else ""
+            )
+        room -= len(facts_text)
+        plan_context = self._plan_context(plan)
+        if len(plan_context) > room:
+            plan_context = ""
+        prefix = prefix.replace(_PLAN_SLOT, facts_text + plan_context)
+        available -= len(facts_text) + len(plan_context)
 
         evidence_limit = min(
             self.config.orchestration.budgets.max_dependency_evidence_chars,
@@ -722,6 +986,51 @@ class DevAgentKit:
             )
 
         return prompt
+
+    @staticmethod
+    def _plan_context(plan: TaskPlan) -> str:
+        """The real plan decided by Triage, so nodes report it as-is (M-084)."""
+
+        def short(text: str, limit: int = 120) -> str:
+            text = " ".join(str(text or "").split())
+            return text if len(text) <= limit else text[: limit - 3] + "..."
+
+        selected = [item for item in plan.agent_decisions if item.selected]
+        omitted = [item for item in plan.agent_decisions if not item.selected]
+        lines = [
+            "Task plan decided by Triage (the planner). If you must report the "
+            "plan or the selected/omitted agents, copy this exactly; do not "
+            "reconstruct it. Triage is the planner, not a candidate agent."
+        ]
+        lines.append("Selected agents:")
+        lines.extend(
+            f"- {item.agent}: {short(item.reason)}" for item in selected
+        )
+        if not selected:
+            lines.append("- (none)")
+        lines.append("Omitted agents:")
+        lines.extend(
+            f"- {item.agent}: {short(item.reason)}" for item in omitted
+        )
+        if not omitted:
+            lines.append("- (none)")
+        if plan.required_disabled_agents:
+            lines.append(
+                "Required but disabled: "
+                + ", ".join(plan.required_disabled_agents)
+            )
+        lines.append("Nodes:")
+        for item in plan.nodes:
+            after = (
+                f" (after {', '.join(item.depends_on)})"
+                if item.depends_on
+                else ""
+            )
+            lines.append(
+                f"- {item.id} [{item.agent}, {item.phase}]{after}: "
+                f"{short(item.objective)}"
+            )
+        return "\n".join(lines) + "\n\n"
 
     def _dependency_context(
         self,
@@ -849,7 +1158,28 @@ class DevAgentKit:
             provider_calls=planning_calls,
             node_durations_ms={"__planning__": planning_ms},
             status="planned",
+            provider=self.provider.key,
+            model=self.config.provider.default_model or "",
+            mode=self.mode,
+            intake_key=fingerprint_intake(
+                plan.independent_risk_flags,
+                self.agents.keys(),
+            ),
+            recorded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            run_id=uuid4().hex[:12],
         )
+
+    def record_story_rejected(self, plan: TaskPlan) -> None:
+        """Record rejected intake without executing any dependent specialists."""
+
+        plan.execution_status = "story_rejected"
+        self._persist_trace(plan, "story_rejected")
+
+    def record_plan_only(self, plan: TaskPlan) -> None:
+        """Persist the trace of a /plan run (planning without execution)."""
+
+        plan.execution_status = "planned_only"
+        self._persist_trace(plan, "planned_only")
 
     def _complete_trace(self, plan: TaskPlan) -> None:
         plan.execution_status = "completed"
@@ -939,3 +1269,13 @@ class DevConversation:
         raise ValueError(
             f"Provider returned unknown active agent '{result_handle.name}'."
         )
+
+
+def _render_output(output: Any) -> str:
+    dump = getattr(output, "model_dump", None)
+    if callable(dump):
+        try:
+            return json.dumps(dump(mode="json"), ensure_ascii=False)
+        except (TypeError, ValueError):
+            pass
+    return str(output)

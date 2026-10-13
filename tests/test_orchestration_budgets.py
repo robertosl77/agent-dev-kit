@@ -274,7 +274,7 @@ def test_dependency_context_is_deduplicated_and_truncated_locally():
     kit = DevAgentKit.build(
         make_config(
             budgets={
-                "max_context_chars": 1200,
+                "max_context_chars": 1600,
                 "max_dependency_evidence_chars": 120,
             }
         ),
@@ -316,11 +316,11 @@ def test_dependency_context_is_deduplicated_and_truncated_locally():
 
     assert len(provider.calls) == 1
     prompt = provider.calls[0][1]
-    assert len(prompt) <= 1200
+    assert len(prompt) <= 1600
     assert "truncated by orchestration budget" in prompt
     assert plan.trace.deduplicated_context_items == 1
     assert plan.trace.context_truncations == 1
-    assert plan.trace.max_context_chars_observed <= 1200
+    assert plan.trace.max_context_chars_observed <= 1600
 
 
 class OversizedPlannerProvider(BudgetProvider):

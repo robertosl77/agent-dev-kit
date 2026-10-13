@@ -80,6 +80,32 @@ dependencies = [
 De esta forma una actualización de `main` no modifica inesperadamente el
 comportamiento del proyecto consumidor.
 
+## Consulta e instalación controlada desde GitHub
+
+El comando `agent-dev-kit update --tag vX.Y.Z` consulta el tag exacto
+(vía `git ls-remote`) y muestra el commit al que apunta. **No ejecuta pip**
+en modo consulta. No acepta ramas cambiantes como `main` o `develop`.
+
+Para instalar esa versión es necesario pedirlo explícitamente:
+
+```bash
+agent-dev-kit update --tag v0.3.1 --apply --yes
+```
+
+Se instala el commit resuelto, no el tag mutable. Las instalaciones
+editables (ej. `pip install -e .`) se bloquean: deben actualizarse con
+`git pull` en su propio checkout. Para repositorios privados se puede usar
+`--ssh` con las credenciales Git existentes. No se aceptan claves dentro de
+URLs. La ejecución no firma ni verifica criptográficamente el autor del tag;
+se confía en el repositorio oficial y su política de releases.
+
+Para un rollback a una versión menor se exige además `--allow-downgrade`.
+No hay daemon de actualización, instalación silenciosa ni descarga desde
+`develop`.
+
+**Importante:** `v0.3.1` en los ejemplos representa sintaxis, no confirma
+que ese tag exista o que sea una versión publicada.
+
 ## Repositorio privado
 
 Cuando Agent Dev Kit pase a privado, el contrato de versión no cambia.

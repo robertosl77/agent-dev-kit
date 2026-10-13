@@ -28,8 +28,14 @@ AGENT_GATE_GUIDANCE: dict[str, str] = {
         "acceptance criteria, product discovery, or unresolved requirements."
     ),
     "pmo": (
-        "Select only for backlog governance, sequencing, dependencies, "
+        "Select only for repository backlog governance, issue hygiene, "
         "release planning, blockers, or work-management decisions."
+    ),
+    "scrum_master": (
+        "Select for a new/changed user-facing capability, including a tiny "
+        "form change, to draft a reviewable story and acceptance criteria. "
+        "Also facilitate Scrum iterations when genuinely useful. "
+        "Skip isolated technical fixes without functional clarification."
     ),
     "architecture": (
         "Select only for cross-layer impact, ownership/boundary decisions, "
@@ -159,9 +165,30 @@ class OrchestrationTrace:
     human_overrides: list[str] = field(default_factory=list)
     persisted: bool = False
     last_persisted_status: str | None = None
+    provider: str = ""
+    model: str = ""
+    intake_key: str = ""
+    mode: str = "propose"
+    usage: list[dict[str, Any]] = field(default_factory=list)
+    tool_events: list[dict[str, Any]] = field(default_factory=list)
+    recorded_at: str = ""
+    run_id: str = ""
+
+    def add_usage(self, stage: str, agent: str, records: Any) -> None:
+        for record in records or ():
+            data = record.to_dict() if hasattr(record, "to_dict") else dict(record)
+            self.usage.append({"stage": stage, "agent": agent, **data})
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "recorded_at": self.recorded_at,
+            "run_id": self.run_id,
+            "provider": self.provider,
+            "model": self.model,
+            "intake_key": self.intake_key,
+            "mode": self.mode,
+            "usage": list(self.usage),
+            "tool_events": list(self.tool_events),
             "request_summary": sanitize_trace_summary(self.request_summary),
             "request_fingerprint": self.request_fingerprint,
             "classification": self.classification,
@@ -406,6 +433,26 @@ def _positive_trace_int(value: Any, label: str) -> int:
 def fingerprint_request(request: str, classification: str = "") -> str:
     normalized = " ".join(request.lower().split())
     payload = f"{classification.strip().lower()}|{normalized}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:20]
+
+
+def fingerprint_intake(
+    independent_risk_flags: Iterable[str],
+    enabled_agents: Iterable[str],
+) -> str:
+    """Pre-Triage key: deterministic risks + enabled agents (M-068).
+
+    Grouping by this key reveals equivalent requests that Triage classified
+    or routed differently, which routing_fingerprint cannot show because it is
+    derived from Triage's own output.
+    """
+
+    payload = "|".join(
+        (
+            ",".join(sorted(independent_risk_flags)),
+            ",".join(sorted(enabled_agents)),
+        )
+    ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:20]
 
 

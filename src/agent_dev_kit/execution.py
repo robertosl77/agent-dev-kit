@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from agent_dev_kit.preferences import PreferenceProfile
 from agent_dev_kit.project_config import ProjectAgentDevKitConfig
@@ -29,6 +29,8 @@ class ProviderRuntime:
     project_config: ProjectAgentDevKitConfig
     tool_registry: ToolRegistry | None = None
     preference_profile: PreferenceProfile | None = None
+    workspace: Any | None = None  # workspace_tools.Workspace (M-076)
+    mode: str = "propose"  # "propose" (read tools) or "act" (write tools)
     _target_index: int = 0
     _kit: DevAgentKit | None = field(default=None, init=False)
 
@@ -108,9 +110,37 @@ class ProviderRuntime:
             self.project_config,
             provider=provider_config,
         )
+        builtin_tools = None
+        execution_note = ""
+        if self.workspace is not None:
+            from agent_dev_kit.workspace_tools import MODE_NOTES, builtin_tools_factory
+
+            builtin_tools = builtin_tools_factory(
+                provider,
+                self.workspace,
+                config,
+                self.mode,
+            )
+            execution_note = MODE_NOTES.get(self.mode, "")
         return DevAgentKit.build(
             config,
             provider,
             tool_registry=self.tool_registry,
             preference_profile=self.preference_profile,
+            builtin_tools=builtin_tools,
+            execution_note=execution_note,
+            mode=self.mode,
+        )
+
+    def with_mode(self, mode: str) -> "ProviderRuntime":
+        """Same provider/credentials, different tool access (propose/act)."""
+
+        return ProviderRuntime(
+            registry=self.registry,
+            project_config=self.project_config,
+            tool_registry=self.tool_registry,
+            preference_profile=self.preference_profile,
+            workspace=self.workspace,
+            mode=mode,
+            _target_index=self._target_index,
         )

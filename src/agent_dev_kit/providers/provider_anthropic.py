@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from agent_dev_kit.usage import UsageRecord
 from agent_dev_kit.providers.tool_loop import (
     LoopAgent,
     ModelTurn,
@@ -35,6 +36,7 @@ class AnthropicProvider(ToolLoopProvider):
             client=client,
         )
         self.max_tokens = int(self.options.get("max_tokens", DEFAULT_MAX_TOKENS))
+        self.prompt_caching = bool(self.options.get("prompt_caching", True))
         if self._client is None:
             self._client = build_anthropic_client(
                 api_key,
@@ -51,11 +53,18 @@ class AnthropicProvider(ToolLoopProvider):
         tools: list[ToolSpec],
         forced_tool: str | None,
     ) -> ModelTurn:
+        # Prompt caching: agent loops resend the whole conversation on every
+        # tool turn. Marking system, tools and the latest message lets
+        # Anthropic serve the repeated prefix from cache (cheaper reads).
+        cache = {"type": "ephemeral"} if self.prompt_caching else None
+        system: Any = spec.definition.instructions
+        if cache:
+            system = [{"type": "text", "text": system, "cache_control": cache}]
         kwargs: dict[str, Any] = {
             "model": spec.model,
             "max_tokens": self.max_tokens,
-            "system": spec.definition.instructions,
-            "messages": transcript,
+            "system": system,
+            "messages": _with_cache_marker(transcript) if cache else transcript,
         }
         if tools:
             kwargs["tools"] = [
@@ -66,6 +75,8 @@ class AnthropicProvider(ToolLoopProvider):
                 }
                 for tool in tools
             ]
+            if cache:
+                kwargs["tools"][-1] = {**kwargs["tools"][-1], "cache_control": cache}
         if forced_tool is not None:
             kwargs["tool_choice"] = {"type": "tool", "name": forced_tool}
 
@@ -91,6 +102,7 @@ class AnthropicProvider(ToolLoopProvider):
             tool_calls=calls,
             raw=response,
             truncated=getattr(response, "stop_reason", None) == "max_tokens",
+            usage=_anthropic_usage(response, spec.model),
         )
 
     def _append_assistant(self, transcript: list[Any], turn: ModelTurn) -> None:
@@ -126,6 +138,40 @@ class AnthropicProvider(ToolLoopProvider):
                 ],
             }
         )
+
+
+def _with_cache_marker(transcript: list[Any]) -> list[Any]:
+    """Copy of the transcript with a cache breakpoint on the last block."""
+
+    if not transcript:
+        return transcript
+    messages = list(transcript)
+    last = dict(messages[-1])
+    content = last.get("content")
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+    else:
+        content = [dict(block) for block in content or []]
+    if content:
+        content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
+    last["content"] = content
+    messages[-1] = last
+    return messages
+
+
+def _anthropic_usage(response: Any, model: str) -> UsageRecord | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    cached = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+    created = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    return UsageRecord(
+        provider="anthropic",
+        model=str(getattr(response, "model", None) or model),
+        input_tokens=int(getattr(usage, "input_tokens", 0) or 0) + cached + created,
+        output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+        cached_input_tokens=cached,
+    )
 
 
 def build_anthropic_client(api_key: str | None, *, base_url: str | None = None):

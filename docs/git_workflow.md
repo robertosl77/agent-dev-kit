@@ -239,3 +239,19 @@ git:create_pull_request:release:develop->main
 
 Esto evita que un agente se autoautorice pasando un simple flag y evita reutilizar
 una aprobación para una acción distinta.
+
+
+## Verificación real de la rama base (M-063, v0.3.0)
+
+`base_is_updated` ya no se asume: si quien llama no lo informa, `GitMutationGateway` lo consulta a un `RepositoryStateVerifier`. Sin verificador y con `require_updated_base_before_task: true`, la creación de la rama se rechaza.
+
+```python
+from agent_dev_kit.git_actions import local_gateway
+
+gateway = local_gateway(project_root, config.git_workflow)  # usa LocalRepositoryVerifier
+gateway.create_task_branch("docs/t-066-readme", base_branch="develop", issue_reference="T-066")
+```
+
+`ToolRegistry.register()` rechaza `effect="git_mutation"`: las escrituras git se registran solo con `register_git_mutation()`.
+
+El modo `/do` de la consola usa este mismo camino: rama y commit locales validados por `GitPolicyGuard`, sin push. Ver [Modos de consola](modos_consola.md).

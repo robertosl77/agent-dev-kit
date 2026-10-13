@@ -1,5 +1,7 @@
 # Interfaz MCP para clientes de chat
 
+**Estado en `develop`:** los siete endpoints originales se conservan para compatibilidad. También están disponibles `agent_dev_kit_workflow_*`, revisión Git, trazas y consumo. Ver [Paridad CLI/MCP](mcp_cli_parity.md). Para clientes remotos sin puerto público consultar [Secure MCP Tunnel](conexion_chatgpt_tunnel.md).
+
 ## Objetivo
 
 Permitir que un cliente de IA compatible con Model Context Protocol (MCP)

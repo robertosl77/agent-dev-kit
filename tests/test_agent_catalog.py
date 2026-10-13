@@ -12,6 +12,7 @@ from agent_dev_kit.agents import (
     build_product_definition,
     build_reviewer_definition,
     build_security_definition,
+    build_scrum_master_definition,
     build_testing_definition,
     build_triage_definition,
     build_ux_ui_definition,
@@ -21,6 +22,7 @@ from agent_dev_kit.agents import (
 BUILDERS = (
     build_product_definition,
     build_pmo_definition,
+    build_scrum_master_definition,
     build_architecture_definition,
     build_ux_ui_definition,
     build_backend_definition,
@@ -38,11 +40,11 @@ BUILDERS = (
 )
 
 
-def test_catalog_has_all_sixteen_agents():
+def test_catalog_has_all_seventeen_agents():
     definitions = [builder() for builder in BUILDERS]
 
-    assert len(definitions) == 16
-    assert len({definition.name for definition in definitions}) == 16
+    assert len(definitions) == 17
+    assert len({definition.name for definition in definitions}) == 17
 
 
 def test_all_catalog_agents_have_handoff_description():

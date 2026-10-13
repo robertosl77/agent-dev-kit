@@ -11,6 +11,7 @@ from .agent_pmo import build_pmo_definition, create_pmo_agent
 from .agent_product import build_product_definition, create_product_agent
 from .agent_reviewer import build_reviewer_definition, create_reviewer_agent
 from .agent_security import build_security_definition, create_security_agent
+from .agent_scrum_master import build_scrum_master_definition, create_scrum_master_agent
 from .agent_testing import build_testing_definition, create_testing_agent
 from .agent_triage import build_triage_definition, create_triage_agent
 from .agent_ux_ui import build_ux_ui_definition, create_ux_ui_agent
@@ -41,6 +42,8 @@ __all__ = [
     "build_reviewer_definition",
     "create_reviewer_agent",
     "build_security_definition",
+    "build_scrum_master_definition",
+    "create_scrum_master_agent",
     "create_security_agent",
     "build_testing_definition",
     "create_testing_agent",

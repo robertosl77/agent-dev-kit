@@ -3,6 +3,7 @@ from typing import Any, Mapping, Sequence
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.tooling import ToolHandle
 from agent_dev_kit.provider_errors import normalize_provider_exception
+from agent_dev_kit.usage import UsageRecord
 from agent_dev_kit.providers.provider_base import (
     AgentHandle,
     AgentProvider,
@@ -38,6 +39,7 @@ class OpenAIProvider(AgentProvider):
         self._agent_class = Agent
         self._runner = Runner
         self.default_model = default_model
+        self.max_turns = int(dict(options or {}).get("max_turns", 25))
         self._run_config = None
         if api_key:
             # Key supplied at runtime (CLI menu): use it explicitly instead of
@@ -66,6 +68,27 @@ class OpenAIProvider(AgentProvider):
 
     def supports_structured_output(self) -> bool:
         return True
+
+    def native_tool(self, tool: Any) -> Any:
+        import json
+
+        from agents import FunctionTool
+
+        from agent_dev_kit.workspace_tools import safe_handler
+
+        handler = safe_handler(tool)
+
+        async def invoke(context: Any, raw_arguments: str) -> str:
+            arguments = json.loads(raw_arguments or "{}")
+            return handler(arguments)
+
+        return FunctionTool(
+            name=tool.name,
+            description=tool.description,
+            params_json_schema=dict(tool.parameters),
+            on_invoke_tool=invoke,
+            strict_json_schema=False,
+        )
 
     def create_structured_agent(
         self,
@@ -131,7 +154,7 @@ class OpenAIProvider(AgentProvider):
     ) -> ProviderRunResult:
         self._validate_handle(agent)
 
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {"max_turns": self.max_turns}
         if session is not None:
             kwargs["session"] = session
         if self._run_config is not None:
@@ -160,7 +183,7 @@ class OpenAIProvider(AgentProvider):
     ) -> ProviderRunResult:
         self._validate_handle(agent)
 
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {"max_turns": self.max_turns}
         if session is not None:
             kwargs["session"] = session
         if self._run_config is not None:
@@ -190,4 +213,32 @@ class OpenAIProvider(AgentProvider):
                 native=active,
             ),
             native_result=result,
+            usage=self._usage(result, active),
         )
+
+    def _usage(self, result: Any, active: Any) -> list[UsageRecord]:
+        wrapper = getattr(result, "context_wrapper", None)
+        usage = getattr(wrapper, "usage", None)
+        if usage is None:
+            return []
+        model = getattr(active, "model", None)
+        if not isinstance(model, str) or not model:
+            try:
+                from agents.models.default_models import get_default_model
+
+                model = get_default_model()
+            except Exception:  # pragma: no cover - SDK internals moved
+                model = self.default_model or "openai-default"
+        input_details = getattr(usage, "input_tokens_details", None)
+        output_details = getattr(usage, "output_tokens_details", None)
+        return [
+            UsageRecord(
+                provider=self.key,
+                model=model,
+                input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+                output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+                reasoning_tokens=int(getattr(output_details, "reasoning_tokens", 0) or 0),
+                cached_input_tokens=int(getattr(input_details, "cached_tokens", 0) or 0),
+                requests=int(getattr(usage, "requests", 1) or 1),
+            )
+        ]

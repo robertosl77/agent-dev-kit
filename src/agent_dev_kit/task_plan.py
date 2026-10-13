@@ -1,9 +1,12 @@
 import json
+import re
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from agent_dev_kit.planner_contract import planner_payload_to_mapping
 from agent_dev_kit.orchestration_policy import (
+    RISK_REQUIRED_AGENTS,
+    RiskFlag,
     ProjectRoutingPolicy,
     coerce_durable_artifact,
     coerce_risk_flag,
@@ -63,6 +66,22 @@ class TaskPlan:
     node_attempts: dict[str, int] = field(default_factory=dict)
     calls_avoided_by_reuse: int = 0
     execution_status: str = "planned"
+    story_approved: bool = False
+    facts: Any = None  # task_facts.TaskFacts, resolved in code before nodes (M-085)
+    # Optional host checkpoint hook. Not sent to model or serialized as a plan.
+    on_checkpoint: Callable[["TaskPlan"], None] | None = field(
+        default=None, repr=False, compare=False,
+    )
+
+    @property
+    def requires_story_approval(self) -> bool:
+        return any(node.agent == "scrum_master" for node in self.nodes)
+
+    def final_nodes(self) -> list[TaskNode]:
+        """Nodes no other node depends on: their output goes to the person."""
+
+        needed = {dep for node in self.nodes for dep in node.depends_on}
+        return [node for node in self.nodes if node.id not in needed]
 
     @classmethod
     def from_json(
@@ -282,7 +301,14 @@ class TaskPlan:
         if self.profile is None:
             raise TaskPlanError("Task profile is required.")
 
+        enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
         independent = preclassify_request(request or self.request)
+        # Opt-in compatibility: older projects need not enable a new role.
+        if "scrum_master" not in enabled:
+            independent = tuple(
+                flag for flag in independent
+                if flag != RiskFlag.USER_STORY_VALIDATION.value
+            )
         merged_risks = tuple(
             dict.fromkeys((*self.profile.risk_flags, *independent))
         )
@@ -303,9 +329,6 @@ class TaskPlan:
         self.policy_activations = evaluation.activated_policy_ids
         self.policy_required_agents = evaluation.required_agents
 
-        enabled = tuple(
-            normalize_agent_key(item) for item in enabled_agents
-        )
         expected = {item for item in enabled if item != "triage"}
         actual = {item.agent for item in self.agent_decisions}
         missing_decisions = expected - actual
@@ -324,6 +347,30 @@ class TaskPlan:
             )
         except ValueError as exc:
             raise TaskPlanError(str(exc)) from exc
+
+        # The story review must be a root and precede every other DAG node.
+        story_nodes = [node for node in self.nodes if node.agent == "scrum_master"]
+        if story_nodes:
+            if len(story_nodes) != 1 or story_nodes[0].depends_on:
+                raise TaskPlanError(
+                    "Scrum Master intake must be one root node without dependencies."
+                )
+            root_id = story_nodes[0].id
+            by_id = {node.id: node for node in self.nodes}
+
+            def depends_on_story(node_id: str) -> bool:
+                node = by_id[node_id]
+                return root_id in node.depends_on or any(
+                    depends_on_story(dep) for dep in node.depends_on
+                )
+
+            if any(
+                not depends_on_story(node.id)
+                for node in self.nodes if node.id != root_id
+            ):
+                raise TaskPlanError(
+                    "Every node after Scrum Master must depend on its story intake."
+                )
 
         by_agent = {item.agent: item for item in self.agent_decisions}
         required_disabled = set(self.required_disabled_agents)
@@ -565,12 +612,94 @@ def normalize_gate_key(value: str) -> str:
     )
 
 
+def render_risk_agent_map(enabled_agents: Iterable[str]) -> str:
+    """Render the deterministic risk -> agent gate map for planner prompts.
+
+    The validator enforces RISK_REQUIRED_AGENTS; the planner must see the same
+    map so it does not have to guess it (M-083).
+    """
+
+    enabled = {normalize_agent_key(item) for item in enabled_agents}
+    lines = []
+    for risk, agents in RISK_REQUIRED_AGENTS.items():
+        rendered = ", ".join(
+            agent if agent in enabled else f"{agent} (disabled)"
+            for agent in agents
+        )
+        lines.append(f"  - {risk} -> {rendered}")
+    return "\n".join(lines)
+
+
+ACT_CAPABILITY_RULES = """Execution contract for /do (strictly enforced after planning):
+- This host creates ONE local task branch from the configured integration branch
+  after the person approves the plan. Do NOT create branches in DAG nodes,
+  and do NOT invent a task branch name: the host derives the real name.
+- Nodes may read and edit local files and run allowlisted commands, using
+  the tools actually available to that specialist.
+- A reviewer inspects the LOCAL workspace changes / git diff and acceptance
+  evidence after the implementation node. It does NOT review a GitHub PR.
+- Only the host asks the person to approve the final LOCAL commit. No DAG
+  node commits changes.
+- NO git push, pull-request creation/submission/review/approval/merge, remote
+  GitHub mutation, or release/publish step: these are unavailable in /do.
+- If the request would require an unavailable remote action, report it as an
+  unmet limitation outside the executable DAG, never promise to do it.
+"""
+
+
+def validate_act_plan_capabilities(plan: TaskPlan) -> None:
+    """Reject actions not provided by the local /do executor.
+
+    Check model-selected node objectives instead of assuming the planner
+    respected an instruction. Reject before any approval or mutation.
+    """
+    remote_pr_action = re.compile(
+        r"\b(?:open|create|submit|raise|publish|review|approve|merge|close|"
+        r"abrir|crear|enviar|revisar|aprobar|fusionar|cerrar)\s+"
+        r"(?:(?:a|an|the|this|that|un|una|el|la|los|las|new|nuevo|"
+        r"nueva|corresponding|draft|borrador)\s+){0,3}"
+        r"(?:pull[ -]?requests?|PRs?)\b"
+        r"|\b(?:git\s+push|push\s+(?:to\s+)?(?:origin|github|remote)|"
+        r"pushear|empujar\s+(?:a\s+)?(?:github|remoto))\b",
+        re.IGNORECASE,
+    )
+    host_owned_action = re.compile(
+        r"\b(?:git\s+commit|(?:create|make|perform|crear|hacer|realizar)\s+"
+        r"(?:(?:a|the|un|el|local)\s+){0,2}commit)\b"
+        r"|\b(?:create|crear|checkout|switch\s+to)\s+"
+        r"(?:(?:a|the|new|una|la|nueva|local|task)\s+){0,3}"
+        r"(?:task\s+)?(?:branch|rama)\b"
+        r"|\b(?:on\s+(?:a|the)\s+branch|en\s+(?:la\s+)?rama)\s+"
+        r"(?:feat|fix|docs|chore|hotfix|refactor|test)/[\w.-]+",
+        re.IGNORECASE,
+    )
+    for node in plan.nodes:
+        objective = node.objective
+        for pattern in (remote_pr_action, host_owned_action):
+            for match in pattern.finditer(objective):
+                before = objective[max(0, match.start() - 36):match.start()]
+                if re.search(
+                    r"(?:\b(?:do\s+not|don't|never|without|no|sin|"
+                    r"nunca|evitar|avoid)\s+(?:\w+\s+){0,2})$",
+                    before,
+                    re.IGNORECASE,
+                ):
+                    continue
+                raise TaskPlanError(
+                    f"Node '{node.id}' requests unavailable /do operation "
+                    f"'{match.group(0)}'. /do supports one host-created local "
+                    "branch, local file changes/tests, local diff review, "
+                    "and a host-approved local commit; no remote PR or push."
+                )
+
+
 def build_planning_prompt(
     request: str,
     *,
     enabled_agents: Iterable[str],
     available_agents: Iterable[str],
     project_policies: Iterable[ProjectRoutingPolicy] = (),
+    mode: str = "propose",
 ) -> str:
     enabled = tuple(normalize_agent_key(item) for item in enabled_agents)
     available = tuple(normalize_agent_key(item) for item in available_agents)
@@ -592,8 +721,12 @@ def build_planning_prompt(
         + ",".join(policy.require_agents)
         for policy in project_policies
     )
+    risk_lines = render_risk_agent_map(enabled)
+    execution_contract = ACT_CAPABILITY_RULES if mode == "act" else ""
 
     return f"""Planning-only operation. Do not hand off.
+
+{execution_contract}
 
 Analyze the user request and return the MINIMUM SUFFICIENT task execution DAG
 as JSON only. Every specialist call has cost. Never select an agent merely
@@ -617,18 +750,33 @@ Deterministic project policies (enforced independently after planning):
 Rules:
 - Use responsibilities, not technologies, to choose agents.
 - Return one explicit selected/omitted decision for EVERY enabled specialist
-  except triage. Every decision requires a concise reason.
+  except triage. Every decision requires a reason of at most 12 words.
 - Selected decisions must match exactly the specialist agents present in nodes.
 - Never substitute a disabled specialist with another agent.
 - If a disabled specialist is materially required, add it to
   required_disabled_agents and do not assign its work elsewhere.
 - Risk flags are material gates, not generic labels. Canonical flags:
-  functional_ambiguity, backlog_coordination, cross_layer, ux_change,
+  functional_ambiguity, user_story_validation, backlog_coordination, cross_layer, ux_change,
   backend_change, frontend_change, persistence_change, security_surface,
   behavior_regression, technical_review, deployment_change,
   performance_risk, runtime_reliability, analytics_data, auth_change,
   schema_change, public_api_change, sensitive_data.
-- A declared risk flag requires its responsible enabled specialist.
+- For new or changed user-facing capabilities, even one form option, set
+  user_story_validation and select scrum_master when enabled. The story needs
+  clear acceptance criteria and explicit user approval BEFORE implementation.
+- When scrum_master is selected, make it exactly ONE root node without
+  dependencies, and make EVERY other node depend on it transitively.
+  The console stops after that root for human review.
+- Do not select scrum_master for purely technical fixes without changed
+  functional intent. Avoid mandatory sprints for tiny requests.
+- Scrum Master may draft GitHub issue proposals but cannot write issues
+  without authorization and an available approved integration.
+- A declared risk flag requires its responsible enabled specialist, selected
+  AND present in nodes. Map (risk flag -> required agents):
+{risk_lines}
+- Before answering, check consistency: for every flag in risk_flags, its
+  required agents must be selected with a node. If you do not want to select
+  that agent, the flag is not materially present: remove the flag instead.
 - Critical risks are also preclassified deterministically after Triage; omitting
   them here cannot bypass their required specialists.
 - Matching project policies can only add required specialists. If one is
@@ -645,7 +793,7 @@ Rules:
   defined security/accessibility checks justify repeatable validation.
 - Do NOT select Security without material security/privacy surface.
 - Do NOT select Architecture for a tiny local change with no structural impact.
-- Create independent branches when work can proceed independently.
+- Express parallel work through independent DAG nodes, not extra Git branches.
 - Express ordering only through depends_on.
 - Prefer direct specialist-to-specialist flow when the dependency is clear.
 - Do not create a human-QA node; human QA happens after the DAG.
