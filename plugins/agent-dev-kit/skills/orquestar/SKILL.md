@@ -45,8 +45,10 @@ Rules:
    relevant outputs of its predecessors (minimal context loss).
 6. If a node reports a blocker, a missing decision or a domain change,
    stop, re-plan the affected part of the DAG and tell the person.
-7. Close with a trace: nodes executed, decisions, evidence (tests, review)
+7. Close with a summary: nodes executed, decisions, evidence (tests, review)
    and what remains for human QA.
+8. Record the orchestration trace (see "Orchestration trace") when the plan
+   is shown, when it is approved/changed, and at the end.
 
 ## Hard rules
 
@@ -63,6 +65,51 @@ Delegate every DAG node to its subagent with the Agent tool. Run nodes
 sequentially unless they are independent. Specialists may consult a direct
 neighbor of the capability graph themselves; you remain the owner of the DAG
 and of the final trace.
+
+## Orchestration trace
+
+Same record as the Agent Dev Kit runtime (`OrchestrationTrace`), so the
+decision can be audited later with `graph_analysis.py`. One JSON object:
+
+```json
+{
+  "run_id": "adk-YYYYMMDD-HHMMSS",
+  "recorded_at": "ISO-8601 timestamp",
+  "host": "claude-code",
+  "mode": "propose | act",
+  "status": "planned | approved | done | blocked",
+  "request_summary": "one line",
+  "full_request": "the request as written by the person",
+  "classification": "feature | defect | incident | operational | security | performance | documentation",
+  "risk_flags": ["flag from the risk map", "..."],
+  "durable_artifacts": ["functional_spec | technical_spec | adr | ..."],
+  "agent_decisions": [
+    {"agent": "backend", "decision": "required | included | excluded", "reason": "why"}
+  ],
+  "dag": [
+    {"id": "n1", "agent": "architecture", "objective": "...", "depends_on": [], "status": "pending | done | blocked"}
+  ],
+  "handoffs": 0,
+  "revisits": 0,
+  "human_overrides": ["what the person changed in the plan, verbatim"],
+  "notes": "re-plans, blockers, limitations"
+}
+```
+
+Rules:
+- `agent_decisions` lists ALL 16 specialists, also the excluded ones, each
+  with a concrete reason. This is what makes the routing auditable.
+- Agent keys use the runtime form (`ux_ui`, `scrum_master`), not `adk-` names.
+- Never put secrets, credentials or personal data in the trace.
+- Do not invent metrics you cannot observe (tokens, durations, model calls).
+
+### Where the trace is stored here
+
+Append the trace as ONE line of compact JSON (JSONL) to
+`.agent-dev-kit/runtime/orchestration-traces.jsonl` in the repository root
+(create the folder if missing; never commit it, and warn the person if it is not git-ignored). Append a new line at each
+status change (planned, approved, done/blocked) with the same `run_id`; never
+rewrite previous lines. Mention the file path in your final summary.
 
 ## Specialist catalog
 

@@ -98,8 +98,10 @@ ORCHESTRATION_RULES = """## Orchestration procedure
    relevant outputs of its predecessors (minimal context loss).
 6. If a node reports a blocker, a missing decision or a domain change,
    stop, re-plan the affected part of the DAG and tell the person.
-7. Close with a trace: nodes executed, decisions, evidence (tests, review)
+7. Close with a summary: nodes executed, decisions, evidence (tests, review)
    and what remains for human QA.
+8. Record the orchestration trace (see "Orchestration trace") when the plan
+   is shown, when it is approved/changed, and at the end.
 
 ## Hard rules
 
@@ -110,7 +112,46 @@ ORCHESTRATION_RULES = """## Orchestration procedure
 """
 
 
-def orchestrator_body(*, execution: str) -> str:
+TRACE_SCHEMA = """## Orchestration trace
+
+Same record as the Agent Dev Kit runtime (`OrchestrationTrace`), so the
+decision can be audited later with `graph_analysis.py`. One JSON object:
+
+```json
+{
+  "run_id": "adk-YYYYMMDD-HHMMSS",
+  "recorded_at": "ISO-8601 timestamp",
+  "host": "HOST_NAME",
+  "mode": "propose | act",
+  "status": "planned | approved | done | blocked",
+  "request_summary": "one line",
+  "full_request": "the request as written by the person",
+  "classification": "feature | defect | incident | operational | security | performance | documentation",
+  "risk_flags": ["flag from the risk map", "..."],
+  "durable_artifacts": ["functional_spec | technical_spec | adr | ..."],
+  "agent_decisions": [
+    {"agent": "backend", "decision": "required | included | excluded", "reason": "why"}
+  ],
+  "dag": [
+    {"id": "n1", "agent": "architecture", "objective": "...", "depends_on": [], "status": "pending | done | blocked"}
+  ],
+  "handoffs": 0,
+  "revisits": 0,
+  "human_overrides": ["what the person changed in the plan, verbatim"],
+  "notes": "re-plans, blockers, limitations"
+}
+```
+
+Rules:
+- `agent_decisions` lists ALL 16 specialists, also the excluded ones, each
+  with a concrete reason. This is what makes the routing auditable.
+- Agent keys use the runtime form (`ux_ui`, `scrum_master`), not `adk-` names.
+- Never put secrets, credentials or personal data in the trace.
+- Do not invent metrics you cannot observe (tokens, durations, model calls).
+"""
+
+
+def orchestrator_body(*, execution: str, host: str, persistence: str) -> str:
     triage = definition("triage")
     return f"""# Agent Dev Kit — Orchestrator (Triage + Planner)
 
@@ -120,6 +161,11 @@ def orchestrator_body(*, execution: str) -> str:
 ## Execution in this environment
 
 {execution}
+
+{TRACE_SCHEMA.replace("HOST_NAME", host)}
+### Where the trace is stored here
+
+{persistence}
 
 ## Specialist catalog
 
@@ -148,6 +194,12 @@ Delegate every DAG node to its subagent with the Agent tool. Run nodes
 sequentially unless they are independent. Specialists may consult a direct
 neighbor of the capability graph themselves; you remain the owner of the DAG
 and of the final trace."""
+
+CODE_TRACE = """Append the trace as ONE line of compact JSON (JSONL) to
+`.agent-dev-kit/runtime/orchestration-traces.jsonl` in the repository root
+(create the folder if missing; never commit it, and warn the person if it is not git-ignored). Append a new line at each
+status change (planned, approved, done/blocked) with the same `run_id`; never
+rewrite previous lines. Mention the file path in your final summary."""
 
 
 def write_plugin() -> None:
@@ -179,7 +231,9 @@ def write_plugin() -> None:
             ensure_ascii=False,
         )
         + "\n"
-        "---\n\n" + orchestrator_body(execution=CODE_EXECUTION),
+        "---\n\n" + orchestrator_body(
+            execution=CODE_EXECUTION, host="claude-code", persistence=CODE_TRACE
+        ),
         encoding="utf-8",
     )
 
@@ -220,6 +274,23 @@ roles separated: a specialist never takes decisions owned by another one;
 when it needs a neighbor, the next node consults it. If the person enabled
 only some skills, treat the missing ones as disabled (node = BLOCKED)."""
 
+AI_TRACE = """Use code execution to write the trace as `adk-trace-<run_id>.json`
+(pretty-printed JSON) and keep it updated at each status change (planned,
+approved, done/blocked). At the end, deliver the file to the person as a
+downloadable file. Also print a short trace block in the chat:
+
+```
+TRACE <run_id> · <status>
+clasificación: ...
+riesgos: ...
+incluidos: agente (motivo), ...
+excluidos: agente (motivo), ...
+DAG: n1 agente -> n2 agente -> ...
+```
+
+Chats do not share files, so each run produces its own file; the person can
+later merge them into one `.jsonl` for analysis."""
+
 
 def write_ai_skills() -> None:
     if DIST_DIR.exists():
@@ -237,7 +308,9 @@ def write_ai_skills() -> None:
                 "desarrollo de software: clasifica, arma el DAG de especialistas adk-*, "
                 "lo hace aprobar y lo ejecuta rol por rol."
             )
-            body = orchestrator_body(execution=AI_EXECUTION)
+            body = orchestrator_body(
+                execution=AI_EXECUTION, host="claude-ai", persistence=AI_TRACE
+            )
         else:
             d = definition(key)
             description = (
