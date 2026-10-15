@@ -1,0 +1,6 @@
+{
+  "name": "agent-dev-kit",
+  "description": "Equipo de 16 especialistas de Agent Dev Kit + orquestador (Triage) como subagentes de Claude Code.",
+  "version": "0.1.0",
+  "author": { "name": "Roberto Sanchez Leiva" }
+}

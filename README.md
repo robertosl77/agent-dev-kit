@@ -196,6 +196,7 @@ agents:
 - [Interfaz MCP para clientes de chat](docs/interfaz_mcp.md)
 - [Conexión privada de ChatGPT mediante Secure MCP Tunnel](docs/conexion_chatgpt_tunnel.md)
 - [Integración con GitHub Copilot](docs/integracion_copilot.md)
+- [Agent Dev Kit en Claude: plugin y skills](docs/claude_plugin_y_skills.md) — instalar con `/plugin install agent-dev-kit --marketplace robertosl77/agent-dev-kit`
 - [Distribución y versionado](docs/distribucion_versionado.md)
 - [Decisión de distribución cerrada](docs/distribucion_cerrada.md)
 - [Política Git por proyecto](docs/git_workflow.md)
