@@ -1,0 +1,14 @@
+{
+  "name": "agent-dev-kit",
+  "description": "Marketplace de Agent Dev Kit para Claude Code",
+  "owner": {
+    "name": "Roberto Sanchez Leiva"
+  },
+  "plugins": [
+    {
+      "name": "agent-dev-kit",
+      "source": "./plugins/agent-dev-kit",
+      "description": "Orquestador (Triage) + 16 especialistas de Agent Dev Kit como subagentes"
+    }
+  ]
+}
