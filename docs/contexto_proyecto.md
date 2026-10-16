@@ -30,6 +30,16 @@ Antes de crear un agente habilitado, Agent Dev Kit incorpora a sus instrucciones
 - `context.rule_sources`: los documentos del repo que mandan en cada tema
   (M-085). Cuando una tarea depende de esas reglas, el agente las lee y las
   sigue por encima del resumen de `git_workflow`.
+  El tema `ui_controls` apunta al **catálogo de controles compartidos** de la
+  interfaz; UX/UI, Frontend y Reviewer lo usan como única fuente (reglas UI-1…UI-7):
+
+  ```yaml
+  stack:
+    frontend: "Angular + Bootstrap 5.3.8"
+  context:
+    rule_sources:
+      ui_controls: frontend/src/app/shared/ui/ui-control.config.ts
+  ```
 
 ## Qué NO se inyecta
 

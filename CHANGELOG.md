@@ -10,7 +10,8 @@ Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 - `TaskPlan.stories_preapproved`: un sprint de un backlog aprobado no vuelve a exigir validar historias;
 - conversación libre: un pedido de cambio reconocido por Triage se puede planificar y ejecutar con OK;
 - se eliminan `/task` y `/do <pedido>` de la sesión interactiva (el subcomando `agent-dev-kit task` no cambia);
-- la traza del skill suma `agreed`, `backlog` y `definition_of_done`.
+- la traza del skill suma `agreed`, `backlog` y `definition_of_done`;
+- reglas de controles compartidos UI-1…UI-7 (auditoría Bootstrap de MisAhorros) en UX/UI, Frontend y Reviewer: catálogo único (`context.rule_sources.ui_controls`), HTML semántico, framework oficial, responsive desde el catálogo, acciones con significado propio, estados de interacción y alcance acotado.
 
 ## Correcciones previas al release v0.3.0 — regresiones funcionales T-066
 

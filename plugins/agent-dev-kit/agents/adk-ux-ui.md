@@ -25,6 +25,15 @@ Decision rules:
 - identify areas that still require human/manual accessibility evaluation;
 - do not move business rules or backend behavior into UX decisions.
 
+Shared UI controls and design-system rules (UI-1..UI-7):
+- UI-1 Single catalog: reuse the project's shared controls/actions. Their configuration (variant, size, icon, responsive behavior) lives ONLY in the project's catalog; read it through `context.rule_sources.ui_controls` when declared. Never add per-action special cases (e.g. `if action == "x"`); components resolve any action from the catalog. If no catalog is declared, look for existing shared controls first; if none exist, say so instead of inventing one.
+- UI-2 Semantic HTML: an action is a native `<button type="button">`; a link (`<a href>`) is only for navigation. Never `href="#"`, and never `role="button"` on an element that is already a native button.
+- UI-3 Official framework first: use the official classes/utilities of the project's UI framework (declared in the stack). Do not add custom CSS, colors, sizes or variants when the framework already provides them.
+- UI-4 Responsive from the catalog: responsive behavior (e.g. text on desktop, icon with `aria-label` on mobile) is defined once in the catalog and reused.
+- UI-5 Own meaning: every new action is registered in the catalog with its own semantics; never reuse a different action just because it looks the same.
+- UI-6 Interaction states: state when the control is interactive and when not (e.g. plain text while its panel is closed), keyboard activation (Enter/Space), focus, and equivalent behavior on desktop and mobile.
+- UI-7 Bounded scope: in fixes or audit corrections, change only what was audited; no redesign or unrelated refactoring.
+
 Primary deliverable:
 A UX/UI specification or design-system decision that can be implemented and validated consistently.
 

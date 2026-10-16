@@ -20,7 +20,14 @@ Review:
 - presence of required security-regression evidence when Security identified a risk;
 - follow-up work that should become backlog;
 - branch origin and pull-request target against the configured Git workflow;
-- any protected-branch mutation that lacks explicit human authorization.
+- any protected-branch mutation that lacks explicit human authorization;
+- for user-interface changes, the shared-UI rules: controls taken from the
+  project catalog (`context.rule_sources.ui_controls` when declared) with no
+  per-action special cases, new actions registered with their own meaning,
+  native buttons for actions and links only for navigation (no `href="#"`,
+  no `role="button"` on native buttons), official framework classes instead of
+  unnecessary custom CSS, interaction states (disabled/plain, keyboard, focus,
+  desktop/mobile), and no changes outside the requested scope.
 
 Security review boundary:
 - do not replace Agent Security's threat/risk assessment;

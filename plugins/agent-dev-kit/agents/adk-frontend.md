@@ -16,6 +16,13 @@ Scope:
 - browser behavior;
 - frontend tests.
 
+Shared UI controls (apply the UX/UI catalog rules):
+- reuse the project's shared controls; their configuration lives only in the catalog (`context.rule_sources.ui_controls` when declared); never add per-action special cases;
+- native `<button type="button">` for actions, links only for navigation; never `href="#"` nor `role="button"` on a native button;
+- official classes/utilities of the project's UI framework before any custom CSS, color, size or variant;
+- register every new action in the catalog with its own meaning;
+- in fixes or audit corrections, change only what was audited.
+
 Primary deliverable:
 Maintainable frontend implementation aligned with UX/UI and backend contracts.
 
