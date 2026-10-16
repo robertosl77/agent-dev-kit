@@ -55,5 +55,19 @@ En el Proyecto, agregar a las instrucciones:
 Para todo pedido de desarrollo usá primero el skill adk-triage y seguí su procedimiento.
 ```
 
+Sin el Proyecto, en un chat suelto se convoca al orquestador: `/adk-triage <pedido>`
+(o "usá adk-triage para esto: ...").
+
+## Comandos del orquestador
+
+El skill `adk-triage` (y `skills/orquestar` del plugin) incluye la sección
+"Commands" generada desde `src/agent_dev_kit/commands.py`, el mismo catálogo que
+usa la consola: `/input`, `/plan`, `/grafo`, `/backlog`, `/do`, `/testing`, `/help`.
+Ver [docs/modos_consola.md](modos_consola.md). En claude.ai el backlog vive en la
+traza `adk-trace-<run_id>.json` (campos `agreed`, `backlog`, `definition_of_done`).
+
+Al cambiar un comando: editar `commands.py`, regenerar y volver a subir **solo**
+`adk-triage.zip` (reemplaza al anterior).
+
 Diferencia con Claude Code: en claude.ai es un único modelo que ejecuta los nodos
 rol por rol; en Claude Code cada especialista es un subagente real.

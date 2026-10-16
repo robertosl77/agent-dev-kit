@@ -201,7 +201,7 @@ agents:
 - [Decisión de distribución cerrada](docs/distribucion_cerrada.md)
 - [Política Git por proyecto](docs/git_workflow.md)
 - [Proveedores](docs/proveedores.md)
-- [Modos de consola: /plan, /task y /do](docs/modos_consola.md)
+- [Comandos de consola: /input, /plan, /grafo, /backlog, /do, /testing](docs/modos_consola.md)
 - [Documentación individual de agentes](docs/agentes/)
 
 ## Proveedor
@@ -262,9 +262,12 @@ Antes de empezar, un menú pregunta proveedor, key (oculta, no se guarda) y mode
 Dentro de la sesión:
 
 ```text
-/plan <pedido>   solo el plan
-/task <pedido>   plan + validación de historia si hay cambio funcional + propuestas
-/do   <pedido>   plan → OK → rama local desde develop → cambian archivos y corren tests → OK → commit local
+/input <texto>   acumula información; responde «Leído»
+/plan [texto]    planifica sin ejecutar (con Scrum: backlog RF/RNF por sprints); pide aprobación
+/grafo           JSON del último plan          /backlog   tabla del backlog
+/do [sprint N]   ejecuta el plan acordado (un sprint por vez con Scrum) en una rama local, con tus OK
+/testing [qué]   corre los tests declarados y reporta; no corrige
+/help            todos los comandos (los mismos que el skill adk-triage de claude.ai)
 ```
 
 Análisis de los grafos registrados:

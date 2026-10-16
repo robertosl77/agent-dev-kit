@@ -1,10 +1,13 @@
-"""Console modes: /plan, /task and /do (M-076).
+"""Execution modes shared by the console commands and `agent-dev-kit task` (M-076).
 
-    /plan  → Triage plans; nothing else runs.
-    /task  → plan + each agent proposes, inspecting the repo with read tools.
-    /do    → plan → OK → local task branch from develop → agents change files
-             and run tests → diff + consumption → OK → local commit.
-             Nothing is pushed.
+    plan     → Triage plans; nothing else runs.
+    propose  → plan + each agent proposes, inspecting the repo with read tools.
+    act      → plan → OK → local task branch from develop → agents change files
+               and run tests → diff + consumption → OK → local commit.
+               Nothing is pushed. With an agreed plan (console /do) the plan
+               is reused instead of rebuilt.
+
+The interactive commands themselves live in console_session.py.
 
 Approvals (decision 5C): the plan is approved before any agent works, test
 commands run without asking, other allowed commands ask, and the commit is

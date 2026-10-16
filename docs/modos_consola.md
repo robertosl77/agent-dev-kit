@@ -1,17 +1,33 @@
-# Modos de consola: /plan, /task y /do
+# Comandos de consola: /input, /plan, /grafo, /backlog, /do, /testing
 
-Desde `v0.3.0` los agentes tienen **herramientas** (M-076): pueden leer el proyecto, leer issues de GitHub y, en modo acción, cambiar archivos y correr tests en una rama local.
+Los comandos salen de un **catálogo único** (`src/agent_dev_kit/commands.py`): la consola y el skill `adk-triage` de claude.ai (generado con `scripts/build_claude_assets.py`) muestran y aplican los mismos. Los comandos son opcionales: sin comando funciona como siempre.
 
 ```text
-/plan <pedido>   solo el plan: qué agentes, en qué orden y con qué modelo. No ejecuta nada.
-/task <pedido>   plan + revisión de historia (si aplica) + propuestas. Solo lectura.
-/do   <pedido>   plan → tu OK → aprobación de HU (si aplica) → rama local desde develop → cambios/tests
-                 → diff y consumo → tu OK → commit local. Nunca hace push.
-/help            ayuda
-/exit            salir
+/input <texto>     acumula información (texto pegado; sin texto abre entrada multilínea con /end).
+                   Responde solo «Leído». No cambia el plan.
+/plan [texto]      planifica con todo lo acumulado (+ el texto). No ejecuta nada.
+                   Con Scrum (Triage eligió scrum_master o pmo): Scrum Master arma el backlog
+                   → ítems RF/RNF con criterios y sprint, sprints, Definition of Done.
+                   Pide aprobar; un /plan posterior deja el plan "no acordado".
+/grafo             JSON completo del último plan (traza + backlog). Sin plan: "No hay plan."
+/backlog           tabla del backlog (ítem, tipo, sprint, estado). Sin backlog: "No hay backlog."
+/do [sprint N]     con Scrum: muestra el sprint → s / n / -HU-04 (lo pasa al sprint siguiente)
+                   → planifica y ejecuta SOLO ese sprint en una rama local → commit con tu OK.
+                   Sin Scrum: ejecuta el plan acordado completo, sin volver a planificar.
+                   Sin plan acordado: no ejecuta nada.
+/testing [qué]     corre workspace.test_commands y reporta OK/FALLA. No corrige nada.
+                   Sin plan ni texto: pregunta qué probar.
+/help              lista los comandos
+/exit              salir
 ```
 
-Cualquier otro texto es una conversación; los agentes también pueden leer el repo para responder.
+- Un comando por mensaje y como primera palabra: `/input /do` es `/input` con texto.
+- Comando desconocido (`/task`, `/plna`…): no ejecuta nada y muestra la ayuda. `/task` y `/do <pedido>` se eliminaron.
+- El plan y el backlog se guardan en `.agent-dev-kit/runtime/backlog.json`: `/backlog`, `/grafo` y `/do` por sprints siguen en otra sesión. Un plan **sin** Scrum de una sesión anterior se puede ver, pero para ejecutarlo hay que repetir `/plan`.
+- Un sprint de un backlog aprobado no vuelve a pedir validación de historias (`TaskPlan.stories_preapproved`).
+- **Conversación libre:** si Triage reconoce un pedido de cambio, la consola pregunta si lo planifica y ejecuta (mismo flujo de `/do` con OK del plan y del commit). Preguntas y explicaciones siguen siendo conversación.
+
+Los agentes tienen **herramientas** (M-076): leen el proyecto y las issues y, al ejecutar, cambian archivos y corren tests en una rama local.
 
 Sin entrar a la sesión:
 
@@ -57,8 +73,8 @@ access: read_only      # o read_write
 Lo que se puede verificar con código no se le pide al modelo:
 
 ```text
-/task o /do
-  0. rama actual ≠ develop → aviso y pregunta (en /task; /do ya parte de develop)   ← sin tokens
+/do (y `agent-dev-kit task`)
+  0. rama actual ≠ develop → aviso y pregunta (en modo propuesta; /do ya parte de develop)   ← sin tokens
   1. Triage planifica (motivos ≤ 12 palabras)
   2. hoja de hechos (código):                                                       ← sin tokens
        rama actual · ramas conocidas · fuentes de reglas (context.rule_sources)
@@ -95,13 +111,14 @@ Lo que se puede verificar con código no se le pide al modelo:
 - Si el pedido apunta a una fuente que contradice los hechos o las fuentes de
   reglas, manda la fuente y el agente señala la contradicción.
 
-## Flujo de /do y aprobaciones
+## Flujo de ejecución y aprobaciones
 
 ```text
-/do T-066 corregir el README
+/plan T-066 corregir el README   → plan aprobado
+/do
   0. controles sin costo: repo limpio, issue de la tarea, develop existe y está igual que origin/develop
-  1. Triage arma el plan → se muestran agentes, nodos, modelo y consumo de la planificación
-     [OK 1] ¿Ejecutar este plan?            ← el punto barato para frenar
+  1. plan acordado (sin Scrum) o plan del sprint → se muestran agentes, nodos y consumo
+     [OK 1] ¿Ejecutar este paso / plan?     ← el punto barato para frenar
   2. rama local  <kind>/<issue>-<slug>  desde develop  (vía GitMutationGateway)
   3. los agentes leen, cambian archivos y corren comandos:
        - workspace.test_commands     → corren sin preguntar

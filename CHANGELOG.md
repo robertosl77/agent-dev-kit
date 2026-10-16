@@ -2,6 +2,16 @@
 
 Todos los cambios relevantes de Agent Dev Kit se documentan en este archivo.
 
+## En desarrollo — comandos del orquestador (`feat/comandos-orquestador`)
+
+- catálogo único de comandos (`commands.py`) para consola y skills: `/input`, `/plan`, `/grafo`, `/backlog`, `/do`, `/testing`, `/help`; el skill `adk-triage` y el plugin de Claude Code los incluyen al generarse;
+- consola: `/input` acumula y responde «Leído»; `/plan` planifica sin ejecutar y pide aprobación (re-plan = no acordado); `/grafo` y `/backlog` leen el plan vigente o `.agent-dev-kit/runtime/backlog.json`; `/testing` corre los tests declarados y solo reporta;
+- Scrum en consola: con scrum_master o pmo en el plan, Scrum Master arma un backlog estructurado y validado (ítems RF/RNF con criterios y sprint, sprints, Definition of Done); `/do` ejecuta un sprint por vez, permite sacar ítems (`-HU-04`) y guarda el estado;
+- `TaskPlan.stories_preapproved`: un sprint de un backlog aprobado no vuelve a exigir validar historias;
+- conversación libre: un pedido de cambio reconocido por Triage se puede planificar y ejecutar con OK;
+- se eliminan `/task` y `/do <pedido>` de la sesión interactiva (el subcomando `agent-dev-kit task` no cambia);
+- la traza del skill suma `agreed`, `backlog` y `definition_of_done`.
+
 ## Correcciones previas al release v0.3.0 — regresiones funcionales T-066
 
 - /do: el planificador conoce las capacidades reales del ejecutor local; no propone crear ni revisar Pull Requests, hacer push ni commitear desde nodos;
