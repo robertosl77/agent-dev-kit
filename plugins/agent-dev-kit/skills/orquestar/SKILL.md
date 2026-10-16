@@ -57,6 +57,65 @@ Rules:
 - Git: never work on main/master; branches are created from the
   integration branch and only after the person approves the plan.
 
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/input <texto o adjuntos>` | recibe información; responde solo «Leído» |
+| `/plan [texto]` | analiza y discute requisitos, alcance, historias, criterios y pasos; no ejecuta |
+| `/grafo` | devuelve el JSON completo del último plan (incluye el backlog); no ejecuta |
+| `/backlog` | muestra solo la tabla del backlog: ítem, tipo RF/RNF, sprint, estado |
+| `/do [sprint N o nodo]` | ejecuta el plan acordado, un paso por vez (sprint o nodo), con tu OK |
+| `/testing [qué probar]` | prepara y ejecuta pruebas del plan; reporta OK/FALLA; no corrige |
+| `/help` | lista todos los comandos |
+
+General rules:
+- Commands are optional. A message without a command works as always: Triage classifies, proposes the plan, waits for approval and executes.
+- The command is the FIRST word of the message. One command per message: `/input /do` means /input and the rest is text.
+- An unknown command (e.g. /plna) executes nothing: answer with the list of valid commands.
+- Update the orchestration trace at every state change.
+
+### `/input`
+- Respond with exactly «Leído» and nothing else: no summary, no question, no opinion.
+- Accumulate everything (text, attachments, images, audio) as context for the next command.
+- Valid at any moment (before or during /plan, before /testing, even during /do).
+- It never changes the plan state.
+
+### `/plan`
+- Plan (or re-plan) with everything accumulated by /input. `/plan <texto>` adds that text as a detail, adjustment or order and plans in the same message.
+- Triage picks the roles the request needs: a small request gets a short DAG; a large one (e.g. a new application) brings all analysis roles: pmo, scrum_master, product, architecture.
+- When the work is large, scrum_master enforces Scrum: every item goes to the product backlog, split into coded user stories (HU-01, HU-02...), delivered in sprints. Each sprint ends in something the person can test.
+- The backlog marks each item as RF (functional requirement, usually a user story) or RNF (non-functional). Cross-cutting RNF go to the Definition of Done; concrete RNF work is a technical backlog item.
+- Output is text/documents only. FORBIDDEN: code, file changes, branches, executing nodes.
+- When the person approves the whole plan, show the full backlog as a table and mark the plan as agreed. A later /plan sets it back to NOT agreed until approved again.
+
+### `/grafo`
+- Return the complete JSON of the latest plan (the current trace), not a diff.
+- If there is no plan, answer only «No hay plan.».
+- It never executes anything nor changes the state.
+
+### `/backlog`
+- Show only the backlog table: item, type (RF/RNF), sprint, status (pending / in progress / done).
+- If there is no backlog, answer only «No hay backlog.».
+- It never executes anything nor changes the state.
+
+### `/do`
+- Requires an agreed (approved) plan. Without it: execute nothing and say so.
+- First show the step to execute (the next sprint, or the next node when there is no Scrum): its items/stories, criteria and what the person will be able to test. WAIT for OK.
+- The person may adjust the step there (remove or add a story); record the change in the trace without re-planning everything.
+- Execute only that step, then stop and say what to test. `/do sprint 3` or `/do n4` targets a specific step.
+- Git: work only on a branch created from the integration branch, never on main/master.
+
+### `/testing`
+- Test what the plan says: the current sprint/step, or the ones the person names.
+- Without a plan, ask what to test and agree on it before running anything.
+- Report each check as OK or FALLA with evidence. NEVER fix the product automatically.
+
+### `/help`
+- List ALL commands of this catalog with their usage, also when the person asks "¿cuáles son tus comandos?".
+
+State: SIN PLAN → /plan → PLANIFICANDO → (approval) → PLAN ACORDADO → /do → EJECUTANDO (one step) → stop for testing/approval → next /do. /input never changes the state.
+
 ## Execution in this environment
 
 Each specialist is a Claude Code subagent of this plugin, named
@@ -78,6 +137,7 @@ decision can be audited later with `graph_analysis.py`. One JSON object:
   "host": "claude-code",
   "mode": "propose | act",
   "status": "planned | approved | done | blocked",
+  "agreed": false,
   "request_summary": "one line",
   "full_request": "the request as written by the person",
   "classification": "feature | defect | incident | operational | security | performance | documentation",
@@ -89,6 +149,10 @@ decision can be audited later with `graph_analysis.py`. One JSON object:
   "dag": [
     {"id": "n1", "agent": "architecture", "objective": "...", "depends_on": [], "status": "pending | done | blocked"}
   ],
+  "backlog": [
+    {"id": "HU-01", "type": "RF | RNF", "title": "...", "criteria": ["..."], "sprint": 1, "status": "pending | in_progress | done"}
+  ],
+  "definition_of_done": ["cross-cutting RNF that every item must meet"],
   "handoffs": 0,
   "revisits": 0,
   "human_overrides": ["what the person changed in the plan, verbatim"],
@@ -102,6 +166,9 @@ Rules:
 - Agent keys use the runtime form (`ux_ui`, `scrum_master`), not `adk-` names.
 - Never put secrets, credentials or personal data in the trace.
 - Do not invent metrics you cannot observe (tokens, durations, model calls).
+- `agreed` is true only after the person approves the whole plan; a re-plan
+  sets it back to false.
+- `backlog` is empty for small requests without Scrum; `sprint` is null there.
 
 ### Where the trace is stored here
 

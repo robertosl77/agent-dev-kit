@@ -20,6 +20,7 @@ import zipfile
 from pathlib import Path
 
 from agent_dev_kit import agents as adk_agents
+from agent_dev_kit.commands import render_skill_section
 from agent_dev_kit.orchestration_policy import RISK_REQUIRED_AGENTS
 from agent_dev_kit.routing import DEFAULT_CAPABILITY_GRAPH
 
@@ -124,6 +125,7 @@ decision can be audited later with `graph_analysis.py`. One JSON object:
   "host": "HOST_NAME",
   "mode": "propose | act",
   "status": "planned | approved | done | blocked",
+  "agreed": false,
   "request_summary": "one line",
   "full_request": "the request as written by the person",
   "classification": "feature | defect | incident | operational | security | performance | documentation",
@@ -135,6 +137,10 @@ decision can be audited later with `graph_analysis.py`. One JSON object:
   "dag": [
     {"id": "n1", "agent": "architecture", "objective": "...", "depends_on": [], "status": "pending | done | blocked"}
   ],
+  "backlog": [
+    {"id": "HU-01", "type": "RF | RNF", "title": "...", "criteria": ["..."], "sprint": 1, "status": "pending | in_progress | done"}
+  ],
+  "definition_of_done": ["cross-cutting RNF that every item must meet"],
   "handoffs": 0,
   "revisits": 0,
   "human_overrides": ["what the person changed in the plan, verbatim"],
@@ -148,6 +154,9 @@ Rules:
 - Agent keys use the runtime form (`ux_ui`, `scrum_master`), not `adk-` names.
 - Never put secrets, credentials or personal data in the trace.
 - Do not invent metrics you cannot observe (tokens, durations, model calls).
+- `agreed` is true only after the person approves the whole plan; a re-plan
+  sets it back to false.
+- `backlog` is empty for small requests without Scrum; `sprint` is null there.
 """
 
 
@@ -158,6 +167,8 @@ def orchestrator_body(*, execution: str, host: str, persistence: str) -> str:
 {triage.instructions.strip()}
 
 {ORCHESTRATION_RULES}
+{render_skill_section()}
+
 ## Execution in this environment
 
 {execution}

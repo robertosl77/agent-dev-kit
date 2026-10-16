@@ -10,6 +10,16 @@ from agent_dev_kit.console_modes import (
     run_plan_only,
     run_propose,
 )
+from agent_dev_kit.commands import parse_command, render_help
+from agent_dev_kit.console_session import (
+    CommandSession,
+    cmd_backlog,
+    cmd_do,
+    cmd_grafo,
+    cmd_input,
+    cmd_plan,
+    cmd_testing,
+)
 from agent_dev_kit.console_setup import ConsoleSetup
 from agent_dev_kit.git_actions import GitActionError
 from agent_dev_kit.git_policy import GitPolicyViolation
@@ -300,7 +310,8 @@ def run_conversation(
         f"Agent Dev Kit listo — proveedor: "
         f"{runtime.current_target.provider}"
     )
-    print("Escribí /help para ver /plan, /task y /do. /exit para salir.")
+    print("Escribí /help para ver los comandos. /exit para salir.")
+    session = CommandSession(root=_session_root(runtime))
 
     while True:
         try:
@@ -313,21 +324,9 @@ def run_conversation(
             continue
         if message in {"/exit", "/quit"}:
             return 0
-        command, _, request = message.partition(" ")
-        if command in COMMAND_MODES:
-            request = request.strip()
-            if not request:
-                request = _read_multiline_request()
-                if not request:
-                    print(f"Pedido vacío para {command}.")
-                    continue
-            try:
-                run_task(runtime, request, mode=COMMAND_MODES[command])
-            except (GitActionError, GitPolicyViolation, TaskPlanError, ProviderError) as exc:
-                _report_in_session(f"No se pudo completar {command}", exc)
-            continue
-        if message == "/help":
-            print(HELP_TEXT)
+        parsed = parse_command(message)
+        if parsed.name is not None:
+            _dispatch_command(runtime, session, parsed)
             continue
 
         try:
@@ -351,17 +350,43 @@ def run_conversation(
         )
 
 
-COMMAND_MODES = {"/plan": "plan", "/task": "propose", "/do": "act"}
+HELP_TEXT = render_help(extra=(("/exit", "salir"),))
 
-HELP_TEXT = """Comandos:
-  /plan <pedido>   solo el plan (qué agentes y en qué orden); no ejecuta nada
-  /task <pedido>   plan + propuesta de cada agente (leen el repo, no lo modifican)
-  /do   <pedido>   plan → tu OK → rama local desde develop → cambian archivos y
-                   corren tests → diff y consumo → tu OK → commit local (sin push)
-  /plan, /task o /do sin <pedido> abren entrada multilínea; terminá con /end
-  /help            esta ayuda
-  /exit            salir
-Cualquier otro texto es una conversación (los agentes pueden leer el repo)."""
+
+def _session_root(runtime: ProviderRuntime) -> Path:
+    workspace = getattr(runtime, "workspace", None)
+    if workspace is not None:
+        return Path(workspace.root)
+    return Path.cwd()
+
+
+def _dispatch_command(runtime: ProviderRuntime, session: CommandSession, parsed) -> None:
+    io = ConsoleIO()
+    confirm = _interactive_fallback_confirmation
+    name, argument = parsed.name, parsed.argument
+    if parsed.unknown:
+        print(f"Comando desconocido: {name}. No se ejecutó nada.")
+        print(HELP_TEXT)
+        return
+    try:
+        if name == "/help":
+            print(HELP_TEXT)
+        elif name == "/input":
+            if not argument:
+                argument = _read_multiline_request()
+            cmd_input(session, argument, io=io)
+        elif name == "/plan":
+            cmd_plan(session, runtime, argument, io=io, confirm_switch=confirm)
+        elif name == "/grafo":
+            cmd_grafo(session, io=io)
+        elif name == "/backlog":
+            cmd_backlog(session, io=io)
+        elif name == "/do":
+            cmd_do(session, runtime, argument, io=io, confirm_switch=confirm)
+        elif name == "/testing":
+            cmd_testing(session, runtime, argument, io=io)
+    except (GitActionError, GitPolicyViolation, TaskPlanError, ProviderError) as exc:
+        _report_in_session(f"No se pudo completar {name}", exc)
 
 
 def _read_multiline_request() -> str:

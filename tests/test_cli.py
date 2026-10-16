@@ -55,96 +55,67 @@ def test_cli_parses_mcp_streamable_http_command():
     assert args.port == 9000
 
 
-def test_session_survives_provider_errors_and_hints_model_change(monkeypatch, capsys):
+class _FakeRuntime:
+    project_config = None
+    workspace = None
+
+    def __init__(self, provider="anthropic"):
+        self.kit = type("Kit", (), {"conversation": lambda self: object()})()
+        self.current_target = type("T", (), {"provider": provider})()
+
+
+def test_session_survives_provider_errors_and_hints_model_change(monkeypatch, capsys, tmp_path):
     from agent_dev_kit import cli
     from agent_dev_kit.provider_errors import ProviderExecutionError
 
-    class FakeRuntime:
-        project_config = None
-
-        def __init__(self):
-            self.kit = type("Kit", (), {"conversation": lambda self: object()})()
-            self.current_target = type("T", (), {"provider": "gemini"})()
-
+    monkeypatch.chdir(tmp_path)
     error = ProviderExecutionError(
         "Provider 'gemini' failed: 404 NOT_FOUND model is no longer available",
         provider="gemini",
     )
-    monkeypatch.setattr(cli, "run_task", lambda *a, **k: (_ for _ in ()).throw(error))
-    answers = iter(["/do T-1 algo", "/exit"])
+    monkeypatch.setattr(cli, "cmd_plan", lambda *a, **k: (_ for _ in ()).throw(error))
+    answers = iter(["/plan T-1 algo", "/exit"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
 
-    assert cli.run_conversation(FakeRuntime()) == 0
+    assert cli.run_conversation(_FakeRuntime("gemini")) == 0
     out = capsys.readouterr().out
-    assert "No se pudo completar /do" in out
-    assert "elegí" not in out or "otro modelo" in out
+    assert "No se pudo completar /plan" in out
     assert "otro modelo" in out
 
 
-def test_multiline_task_is_sent_as_one_request(monkeypatch, capsys):
+def test_multiline_input_is_accumulated_as_one_block(monkeypatch, capsys, tmp_path):
     from agent_dev_kit import cli
 
-    class FakeRuntime:
-        project_config = None
+    monkeypatch.chdir(tmp_path)
+    seen = []
+    real = cli.cmd_input
 
-        def __init__(self):
-            self.kit = type("Kit", (), {"conversation": lambda self: object()})()
-            self.current_target = type("T", (), {"provider": "anthropic"})()
+    def spy(session, argument, *, io):
+        real(session, argument, io=io)
+        seen.append(list(session.context))
 
-    calls = []
-
-    def fake_run_task(runtime, request, *, mode="propose"):
-        calls.append((request, mode))
-        return 0
-
-    monkeypatch.setattr(cli, "run_task", fake_run_task)
-    answers = iter([
-        "/task",
-        "primera línea",
-        "segunda línea",
-        "/end",
-        "/exit",
-    ])
+    monkeypatch.setattr(cli, "cmd_input", spy)
+    answers = iter(["/input", "primera línea", "segunda línea", "/end", "/exit"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
 
-    assert cli.run_conversation(FakeRuntime()) == 0
-    assert calls == [("primera línea\nsegunda línea", "propose")]
+    assert cli.run_conversation(_FakeRuntime()) == 0
+    assert seen == [["primera línea\nsegunda línea"]]
     out = capsys.readouterr().out
-    assert "Escribí o pegá el pedido. Para terminar, escribí /end en una línea aparte." in out
+    assert "Escribí o pegá el pedido." in out
+    assert "Leído" in out
 
 
-def test_multiline_plan_and_do_use_their_modes(monkeypatch):
+def test_removed_task_command_is_unknown_and_shows_help(monkeypatch, capsys, tmp_path):
     from agent_dev_kit import cli
+    from agent_dev_kit.commands import COMMAND_NAMES
 
-    class FakeRuntime:
-        project_config = None
-
-        def __init__(self):
-            self.kit = type("Kit", (), {"conversation": lambda self: object()})()
-            self.current_target = type("T", (), {"provider": "anthropic"})()
-
-    calls = []
-
-    def fake_run_task(runtime, request, *, mode="propose"):
-        calls.append((request, mode))
-        return 0
-
-    monkeypatch.setattr(cli, "run_task", fake_run_task)
-    answers = iter([
-        "/plan",
-        "plan línea 1",
-        "plan línea 2",
-        "/end",
-        "/do",
-        "do línea 1",
-        "do línea 2",
-        "/end",
-        "/exit",
-    ])
+    monkeypatch.chdir(tmp_path)
+    answers = iter(["/task algo", "/do", "/exit"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
 
-    assert cli.run_conversation(FakeRuntime()) == 0
-    assert calls == [
-        ("plan línea 1\nplan línea 2", "plan"),
-        ("do línea 1\ndo línea 2", "act"),
-    ]
+    assert cli.run_conversation(_FakeRuntime()) == 0
+    out = capsys.readouterr().out
+    assert "Comando desconocido: /task. No se ejecutó nada." in out
+    for name in COMMAND_NAMES:
+        assert name in out
+    assert "No hay plan. Primero /plan y aprobalo." in out

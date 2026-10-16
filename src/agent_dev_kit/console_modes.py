@@ -199,7 +199,13 @@ def run_act(
     *,
     io: ConsoleIO,
     confirm_switch: Confirm,
+    plan: TaskPlan | None = None,
 ) -> ActOutcome:
+    """Execute a task on a local branch.
+
+    With ``plan`` (agreed earlier with /plan) the plan is not rebuilt and its
+    approval is not asked again: /do already showed the step and got the OK.
+    """
     act_runtime = runtime if runtime.mode == "act" else runtime.with_mode("act")
     workspace = act_runtime.workspace
     if workspace is None:
@@ -232,17 +238,18 @@ def run_act(
 
     # OK 1 — approve the plan before any agent works (the cheap point to stop).
     workspace.events.clear()
-    plan = _plan(act_runtime, request, confirm_switch)
-    for line in plan_summary(plan, act_runtime):
-        io.say(line)
-    io.say(format_usage_line(usage_stages(plan.trace), config.pricing))
-    if not io.confirm("¿Ejecutar este plan?"):
-        act_runtime.kit.record_plan_only(plan)
-        io.say("Plan descartado. No se tocó nada.")
-        return ActOutcome(status="plan_rejected", plan=plan)
+    if plan is None:
+        plan = _plan(act_runtime, request, confirm_switch)
+        for line in plan_summary(plan, act_runtime):
+            io.say(line)
+        io.say(format_usage_line(usage_stages(plan.trace), config.pricing))
+        if not io.confirm("¿Ejecutar este plan?"):
+            act_runtime.kit.record_plan_only(plan)
+            io.say("Plan descartado. No se tocó nada.")
+            return ActOutcome(status="plan_rejected", plan=plan)
 
     # Read-only functional intake BEFORE branch creation or write-capable agents.
-    if plan.requires_story_approval:
+    if plan.requires_story_approval and not plan.story_approved:
         preview = act_runtime.with_mode("propose")
         workspace.bind_trace(plan.trace)
         plan.facts = _facts(workspace, config, request)
