@@ -119,3 +119,37 @@ def test_removed_task_command_is_unknown_and_shows_help(monkeypatch, capsys, tmp
     for name in COMMAND_NAMES:
         assert name in out
     assert "No hay plan. Primero /plan y aprobalo." in out
+
+
+def test_free_text_change_request_offers_plan_and_execution(monkeypatch, capsys, tmp_path):
+    from types import SimpleNamespace
+
+    from agent_dev_kit import cli
+
+    monkeypatch.chdir(tmp_path)
+    reply = SimpleNamespace(
+        output=f"Lo puedo hacer.\n{cli.TASK_MARKER}",
+        active_agent=SimpleNamespace(name="Triage"),
+        usage=[],
+    )
+    monkeypatch.setattr(cli, "_ask_with_fallback", lambda rt, conv, msg, hist: (conv, reply))
+    monkeypatch.setattr(cli, "format_usage_line", lambda *a, **k: "")
+    calls = []
+    monkeypatch.setattr(cli, "run_direct_request", lambda rt, req, **k: calls.append(req))
+    answers = iter(["agregá un campo al package", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    runtime = _FakeRuntime()
+    runtime.project_config = SimpleNamespace(pricing=None)
+    assert cli.run_conversation(runtime) == 0
+    assert calls == ["agregá un campo al package"]
+    out = capsys.readouterr().out
+    assert cli.TASK_MARKER not in out and "Lo puedo hacer." in out
+
+
+def test_conversation_prompt_carries_the_task_marker_rule():
+    from agent_dev_kit import cli
+
+    assert cli.TASK_MARKER in cli._conversation_prompt([], "hola")
+    assert cli.TASK_MARKER in cli._conversation_prompt([("user", "a"), ("assistant", "b")], "hola")
+    assert cli._split_task_marker("texto") == ("texto", False)

@@ -58,3 +58,35 @@ def planner_payload_to_mapping(payload: Any) -> Mapping[str, Any]:
     raise TypeError(
         "Planner output must be StructuredTaskPlan or a mapping."
     )
+
+
+# ---------------------------------------------------------------------------
+# Scrum backlog (/plan in the console)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class BacklogItemOut:
+    id: str
+    type: str
+    title: str
+    criteria: list[str]
+    sprint: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class SprintOut:
+    number: int
+    goal: str
+    testable_result: str
+
+
+@dataclass(frozen=True, slots=True)
+class StructuredBacklog:
+    """Provider-facing structured output contract for the Scrum backlog."""
+
+    items: list[BacklogItemOut]
+    sprints: list[SprintOut]
+    definition_of_done: list[str]
+
+    def to_mapping(self) -> dict[str, Any]:
+        return asdict(self)

@@ -67,6 +67,9 @@ class TaskPlan:
     calls_avoided_by_reuse: int = 0
     execution_status: str = "planned"
     story_approved: bool = False
+    # Stories already approved by the person (e.g. a sprint of an agreed
+    # backlog): user_story_validation no longer requires Scrum Master.
+    stories_preapproved: bool = False
     facts: Any = None  # task_facts.TaskFacts, resolved in code before nodes (M-085)
     # Optional host checkpoint hook. Not sent to model or serialized as a plan.
     on_checkpoint: Callable[["TaskPlan"], None] | None = field(
@@ -312,6 +315,15 @@ class TaskPlan:
         merged_risks = tuple(
             dict.fromkeys((*self.profile.risk_flags, *independent))
         )
+        if self.stories_preapproved:
+            independent = tuple(
+                flag for flag in independent
+                if flag != RiskFlag.USER_STORY_VALIDATION.value
+            )
+            merged_risks = tuple(
+                flag for flag in merged_risks
+                if flag != RiskFlag.USER_STORY_VALIDATION.value
+            )
         self.independent_risk_flags = independent
         if merged_risks != self.profile.risk_flags:
             self.profile = RequestProfile(

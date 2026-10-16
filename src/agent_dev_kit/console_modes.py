@@ -89,9 +89,15 @@ def plan_summary(plan: TaskPlan, runtime: ProviderRuntime) -> list[str]:
     return lines
 
 
-def _plan(runtime: ProviderRuntime, request: str, confirm_switch: Confirm) -> TaskPlan:
+def _plan(
+    runtime: ProviderRuntime,
+    request: str,
+    confirm_switch: Confirm,
+    *,
+    stories_preapproved: bool = False,
+) -> TaskPlan:
     plan = runtime.run_with_fallback_sync(
-        lambda kit: kit.plan_task_sync(request),
+        lambda kit: kit.plan_task_sync(request, stories_preapproved=stories_preapproved),
         confirm_switch=confirm_switch,
     )
     missing = plan.missing_agents(runtime.kit.agents.keys())
@@ -200,6 +206,7 @@ def run_act(
     io: ConsoleIO,
     confirm_switch: Confirm,
     plan: TaskPlan | None = None,
+    stories_preapproved: bool = False,
 ) -> ActOutcome:
     """Execute a task on a local branch.
 
@@ -239,7 +246,10 @@ def run_act(
     # OK 1 — approve the plan before any agent works (the cheap point to stop).
     workspace.events.clear()
     if plan is None:
-        plan = _plan(act_runtime, request, confirm_switch)
+        plan = _plan(
+            act_runtime, request, confirm_switch,
+            stories_preapproved=stories_preapproved,
+        )
         for line in plan_summary(plan, act_runtime):
             io.say(line)
         io.say(format_usage_line(usage_stages(plan.trace), config.pricing))

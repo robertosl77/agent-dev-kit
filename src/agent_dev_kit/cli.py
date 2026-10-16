@@ -19,6 +19,7 @@ from agent_dev_kit.console_session import (
     cmd_input,
     cmd_plan,
     cmd_testing,
+    run_direct_request,
 )
 from agent_dev_kit.console_setup import ConsoleSetup
 from agent_dev_kit.git_actions import GitActionError
@@ -339,15 +340,26 @@ def run_conversation(
         except ProviderError as exc:
             _report_in_session("No se pudo responder", exc)
             continue
+        output, is_task = _split_task_marker(str(result.output))
         history.append(("user", message))
-        history.append(("assistant", result.output))
-        print(f"{result.active_agent.name}> {result.output}")
+        history.append(("assistant", output))
+        print(f"{result.active_agent.name}> {output}")
         print(
             format_usage_line(
                 [("respuesta", result.usage)],
                 runtime.project_config.pricing,
             )
         )
+        if is_task:
+            try:
+                run_direct_request(
+                    runtime,
+                    message,
+                    io=ConsoleIO(),
+                    confirm_switch=_interactive_fallback_confirmation,
+                )
+            except (GitActionError, GitPolicyViolation, TaskPlanError, ProviderError) as exc:
+                _report_in_session("No se pudo completar el pedido", exc)
 
 
 HELP_TEXT = render_help(extra=(("/exit", "salir"),))
@@ -500,12 +512,29 @@ def _ask_with_fallback(
             prompt = _conversation_prompt(history, message)
 
 
+TASK_MARKER = "[[ADK_TAREA]]"
+
+TASK_MARKER_RULE = (
+    "\n\n(Agent Dev Kit console rule: if the latest user message asks to CHANGE "
+    "the project — implement, fix, add, remove or modify code, files or "
+    "configuration — answer briefly and end your answer with a last line "
+    f"containing exactly {TASK_MARKER}. Never add it for questions, "
+    "explanations or analysis.)"
+)
+
+
+def _split_task_marker(output: str) -> tuple[str, bool]:
+    if TASK_MARKER not in output:
+        return output, False
+    return output.replace(TASK_MARKER, "").rstrip(), True
+
+
 def _conversation_prompt(
     history: list[tuple[str, str]],
     message: str,
 ) -> str:
     if not history:
-        return message
+        return message + TASK_MARKER_RULE
 
     transcript = "\n".join(
         f"{role}: {content}"
@@ -517,6 +546,7 @@ def _conversation_prompt(
         f"{transcript}\n"
         f"user: {message}\n"
         "Respond to the latest user message."
+        + TASK_MARKER_RULE
     )
 
 

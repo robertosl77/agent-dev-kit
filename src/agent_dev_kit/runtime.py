@@ -15,7 +15,8 @@ from agent_dev_kit.agent_catalog import (
 )
 from agent_dev_kit.agent_definition import AgentDefinition
 from agent_dev_kit.project_config import ProjectAgentDevKitConfig
-from agent_dev_kit.planner_contract import StructuredTaskPlan
+from agent_dev_kit.planner_contract import StructuredBacklog, StructuredTaskPlan
+from agent_dev_kit.backlog import BacklogError, build_backlog_prompt, parse_backlog
 from agent_dev_kit.providers.provider_base import AgentHandle, AgentProvider, ProviderRunResult
 from agent_dev_kit.tooling import ToolRegistry
 from agent_dev_kit.preferences import PreferenceProfile
@@ -59,6 +60,7 @@ class DevAgentKit:
     agents: dict[str, AgentHandle]
     planner_agent: AgentHandle | None = None
     node_agents: dict[str, AgentHandle] | None = None
+    backlog_agent: AgentHandle | None = None
     trace_store: OrchestrationTraceStore | None = None
     rejection_log_path: Path | None = None
     execution_note: str = ""
@@ -125,11 +127,31 @@ class DevAgentKit:
             else:
                 planner_agent = provider.create_agent(planner_definition)
 
+        backlog_agent = None
+        if "scrum_master" in agents:
+            scrum_definition = build_enabled_definitions(
+                config,
+                preference_profile=preference_profile,
+            )["scrum_master"]
+            backlog_definition = AgentDefinition(
+                name="Agent Scrum Backlog",
+                instructions=scrum_definition.instructions,
+                model=scrum_definition.model,
+            )
+            if provider.supports_structured_output():
+                backlog_agent = provider.create_structured_agent(
+                    backlog_definition,
+                    output_type=StructuredBacklog,
+                )
+            else:
+                backlog_agent = provider.create_agent(backlog_definition)
+
         return cls(
             config=config,
             provider=provider,
             agents=agents,
             planner_agent=planner_agent,
+            backlog_agent=backlog_agent,
             node_agents=node_agents,
             trace_store=trace_store,
             rejection_log_path=rejection_log_path,
@@ -154,6 +176,7 @@ class DevAgentKit:
         request: str,
         *,
         session: Any | None = None,
+        stories_preapproved: bool = False,
     ) -> TaskPlan:
         """Create a validated plan within hard orchestration budgets."""
 
@@ -179,7 +202,7 @@ class DevAgentKit:
         self._validate_planner_result(planner, result)
 
         try:
-            plan = self._parse_and_validate_plan(result.output, request)
+            plan = self._parse_and_validate_plan(result.output, request, stories_preapproved=stories_preapproved)
         except DisabledAgentRequiredError:
             raise
         except TaskPlanError as first_error:
@@ -208,7 +231,7 @@ class DevAgentKit:
             planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
-                plan = self._parse_and_validate_plan(repaired.output, request)
+                plan = self._parse_and_validate_plan(repaired.output, request, stories_preapproved=stories_preapproved)
             except DisabledAgentRequiredError:
                 raise
             except TaskPlanError as second_error:
@@ -242,6 +265,7 @@ class DevAgentKit:
         request: str,
         *,
         session: Any | None = None,
+        stories_preapproved: bool = False,
     ) -> TaskPlan:
         """Async variant of budgeted structured planning."""
 
@@ -267,7 +291,7 @@ class DevAgentKit:
         self._validate_planner_result(planner, result)
 
         try:
-            plan = self._parse_and_validate_plan(result.output, request)
+            plan = self._parse_and_validate_plan(result.output, request, stories_preapproved=stories_preapproved)
         except DisabledAgentRequiredError:
             raise
         except TaskPlanError as first_error:
@@ -296,7 +320,7 @@ class DevAgentKit:
             planning_usage.extend(repaired.usage)
             self._validate_planner_result(planner, repaired)
             try:
-                plan = self._parse_and_validate_plan(repaired.output, request)
+                plan = self._parse_and_validate_plan(repaired.output, request, stories_preapproved=stories_preapproved)
             except DisabledAgentRequiredError:
                 raise
             except TaskPlanError as second_error:
@@ -332,6 +356,39 @@ class DevAgentKit:
             return self.node_agents[key]
         return self.agents[key]
 
+    def build_backlog_sync(self, plan: TaskPlan) -> dict[str, Any]:
+        """Scrum backlog (RF/RNF items, sprints, DoD) for an agreed-to-be plan.
+
+        One provider call plus at most one repair, like the planner.
+        """
+
+        if self.backlog_agent is None:
+            raise TaskPlanError(
+                "Scrum Master must be enabled to build a sprint backlog."
+            )
+        language = self.config.language
+        prompt = build_backlog_prompt(plan, language=language)
+        self._ensure_prompt_budget(prompt, stage="backlog")
+        result = self.provider.run_sync(self.backlog_agent, prompt)
+        if plan.trace is not None:
+            plan.trace.add_usage("backlog", "scrum_master", result.usage)
+        try:
+            return parse_backlog(result.output)
+        except BacklogError as first_error:
+            repair = (
+                f"{prompt}\n\nYour previous answer was invalid: {first_error}. "
+                "Return the corrected backlog."
+            )
+            repaired = self.provider.run_sync(self.backlog_agent, repair)
+            if plan.trace is not None:
+                plan.trace.add_usage("backlog_repair", "scrum_master", repaired.usage)
+            try:
+                return parse_backlog(repaired.output)
+            except BacklogError as second_error:
+                raise TaskPlanError(
+                    f"Backlog output remained invalid after one repair: {second_error}"
+                ) from second_error
+
     def _require_planner(self) -> AgentHandle:
         if "triage" not in self.agents or self.planner_agent is None:
             raise ValueError(
@@ -353,11 +410,14 @@ class DevAgentKit:
                 "Planning must execute without handoffs."
             )
 
-    def _parse_and_validate_plan(self, output: Any, request: str) -> TaskPlan:
+    def _parse_and_validate_plan(
+        self, output: Any, request: str, *, stories_preapproved: bool = False
+    ) -> TaskPlan:
         """Parse and validate gates, so both kinds of error get one repair."""
 
         plan = self._parse_planner_output(output)
         plan.request = request
+        plan.stories_preapproved = stories_preapproved
         plan.validate_orchestration_policy(
             self.agents.keys(),
             request=request,
