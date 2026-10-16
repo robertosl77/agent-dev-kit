@@ -350,3 +350,48 @@ def test_preapproved_stories_drop_the_scrum_master_gate():
             ["triage", "scrum_master", "documentation", "reviewer"],
             request=payload["request"],
         )
+
+
+def test_testing_without_declared_commands_runs_nothing(project):
+    path = project / ".agent-dev-kit" / "project.yaml"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace('  test_commands: ["git status"]\n', ""),
+        encoding="utf-8",
+    )
+    runtime, messages = runtime_for(project)
+    session = CommandSession(root=project)
+    io_, out = console()
+
+    cmd_testing(session, runtime, "README", io=io_)
+
+    assert "no declara pruebas" in out.getvalue()
+    assert messages.calls == []
+
+
+def test_emptying_a_sprint_executes_nothing(scrum_project):
+    runtime, messages = scrum_runtime(scrum_project)
+    session = CommandSession(root=scrum_project)
+    io_, _ = console("s")
+    cmd_plan(session, runtime, "App nueva de notas", io=io_, confirm_switch=no_switch)
+    before = len(messages.calls)
+
+    io2, out2 = console("-HU-01 HU-02")
+    cmd_do(session, runtime, "", io=io2, confirm_switch=no_switch)
+
+    assert "El sprint quedó vacío. No se ejecutó nada." in out2.getvalue()
+    assert len(messages.calls) == before
+    assert git(scrum_project, "rev-parse", "--abbrev-ref", "HEAD") == "develop"
+
+
+def test_do_rejects_unknown_step_syntax(scrum_project):
+    runtime, _ = scrum_runtime(scrum_project)
+    session = CommandSession(root=scrum_project)
+    io_, _ = console("s")
+    cmd_plan(session, runtime, "App nueva de notas", io=io_, confirm_switch=no_switch)
+
+    io2, out2 = console()
+    cmd_do(session, runtime, "sprint 9", io=io2, confirm_switch=no_switch)
+    cmd_do(session, runtime, "cualquier cosa", io=io2, confirm_switch=no_switch)
+
+    assert "No existe el sprint 9." in out2.getvalue()
+    assert "Usá /do o /do sprint N." in out2.getvalue()
